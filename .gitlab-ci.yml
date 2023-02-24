@@ -1,0 +1,72 @@
+# This file is a template, and might need editing before it works on your project.
+# To contribute improvements to CI/CD templates, please follow the Development guide at:
+# https://docs.gitlab.com/ee/development/cicd/templates.html
+# This specific template is located at:
+# https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Getting-Started.gitlab-ci.yml
+
+# This is a sample GitLab CI/CD configuration file that should run without any modifications.
+# It demonstrates a basic 3 stage CI/CD pipeline. Instead of real tests or scripts,
+# it uses echo commands to simulate the pipeline execution.
+#
+# A pipeline is composed of independent jobs that run scripts, grouped into stages.
+# Stages run in sequential order, but jobs within stages run in parallel.
+#
+# For more information, see: https://docs.gitlab.com/ee/ci/yaml/index.html#stages
+
+stages:          # List of stages for jobs, and their order of execution
+  - build
+  - func-test
+  - time-test
+
+build-job:       # This job runs in the build stage, which runs first.
+  stage: build
+  script:
+    - mkdir -p build
+    - cd build
+    - cmake .. -DCMAKE_BUILD_TYPE=Release
+    - make -j4
+  cache:
+    paths:
+      - build
+
+functional-test-job:   # This job runs in the test stage.
+  stage: func-test    # It only starts when the job in the build stage completes successfully.
+  script:
+    - cd test
+    - ulimit -s unlimited
+    - python3 benchmark.py --console --func --dbpath /home/gitlab-runner/benchmark_results.db
+  cache:
+    paths:
+      - build
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+
+hidden-test-job:
+  stage: func-test
+  script:
+    - cd test
+    - ulimit -s unlimited
+    - python3 benchmark.py --console --hidden --dbpath /home/gitlab-runner/benchmark_results.db
+  cache:
+    paths:
+      - build
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+
+performance-test-job:   # This job also runs in the test stage.
+  stage: time-test    # It can run at the same time as unit-test-job (in parallel).
+  script:
+    # - git submodule update --remote # 已经设置了 recursive 的模式，不需要手动同步
+    - cd test
+    - ulimit -s unlimited
+    - python3 benchmark.py --console --time --dbpath /home/gitlab-runner/benchmark_results.db
+    # - cd .. # 树莓派上的 pandas 下载速度实在是太慢了 ╮(╯▽╰)╭
+  cache:
+    paths:
+      - build
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+  artifacts:
+    paths:
+      - test/benchmark.out
+    expire_in: never

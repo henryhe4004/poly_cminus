@@ -1,0 +1,10 @@
+int main(){
+    int a=3;
+    int b=4;
+    int c=0;
+    if(b>2)
+        c=a+b;
+    else
+        c=getint();
+    return c;
+}
