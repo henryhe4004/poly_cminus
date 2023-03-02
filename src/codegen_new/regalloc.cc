@@ -594,6 +594,8 @@ void RegAlloc::run() {
 
 void RegAlloc::check_intervals() {
     for (auto [k, v] : ssa_intervals) {
+        LOG_DEBUG<<k->print();
+        LOG_DEBUG<<v.val->print();
         assert (k and k == v.val);
         assert(not v.s.empty());
     }

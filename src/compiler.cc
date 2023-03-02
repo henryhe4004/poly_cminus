@@ -86,6 +86,7 @@ int main(int argc, char *argv[]) {
     bool poly_test = false;
     bool adhoc = default_value;
     bool branch_opt= default_value;
+    bool transform_select = default_value; //将select的中间代码转换成
     string input_file_path, target_file_path;
     int reg_num = 10;
     if (argc <= 1) {
@@ -136,6 +137,7 @@ int main(int argc, char *argv[]) {
         trigger_opt(poly_test, "-poly-test");
         trigger_opt(adhoc, "-adhoc");
         trigger_opt(branch_opt, "-branch-opt");
+        trigger_opt(transform_select,"-transform-select");
 #undef trigger_opt
         if (argv[i] == "--help"sv || argv[i] == "-h"sv) {
             print_usage();
@@ -209,6 +211,7 @@ int main(int argc, char *argv[]) {
     add_pass_if(Mem2Reg, mem2reg);
     add_pass_if(PolyTest, poly_test);
     add_pass_if(Polyhedral, poly);
+    
     add_pass_if(AdHocOptimization, adhoc);
     add_pass_if(DeadGlobalElimination, dead_global);
     add_pass_if(FuncInfo, func_info);
@@ -237,6 +240,9 @@ int main(int argc, char *argv[]) {
     add_pass_if(LoopInvMotion, loop_inv);
     add_pass_if(AlgebraicSimplification, algebraic_simplification);
     add_pass_if(GepElimination, gep_elim);
+    add_pass_if(TransformSelect,transform_select); //transfer
+    // add_pass_if(Mem2Reg, mem2reg);
+   
     add_pass_if(AlgebraicSimplification, algebraic_simplification && (func_inline || glo_var_local || gep_elim));
     add_pass_if(LoopInvMotion, loop_inv && (func_inline || glo_var_local || gep_elim));
     add_pass_if(MulWeaken, mul_weaken);
@@ -253,6 +259,7 @@ int main(int argc, char *argv[]) {
     add_pass_if(LowerIR, lower_ir && silent);
     add_pass_if(DeadCode, lower_ir and dead_code);
     add_pass_if(SimplifyCFG, simplify_cfg);
+    
     if (loop_sea)
         pass_manager.pass_list.push_back({std::make_shared<loop_search>(module, dump_graph), false});
 #undef add_pass_if

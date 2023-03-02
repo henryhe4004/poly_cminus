@@ -521,6 +521,8 @@ void Codegen::gen_select(SelectInst *sel) {
         auto cond_reg = get(test_bit);
         Instgen::tst(cond_reg, 1);
         move(target_reg, lhs, "NE");
+        // auto rhs_reg = get(rhs);
+        // LOG_DEBUG<<"target_reg"<<target_reg<<"  rhs_reg"<<rhs_reg;
         move(target_reg, rhs, "EQ");
     } else
         LOG_ERROR << "no reg";

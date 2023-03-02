@@ -55,6 +55,7 @@ const std::shared_ptr<Instruction> BasicBlock::get_terminator() const {
     switch (instr_list_.back()->get_instr_type()) {
         case Instruction::ret:
         case Instruction::br:
+            return instr_list_.back();
         case Instruction::switch1:
             return instr_list_.back();
         default:

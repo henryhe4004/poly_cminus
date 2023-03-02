@@ -228,6 +228,9 @@ class Instruction : public User {
             case xor1:
                 return "xor";
                 break;
+            case select:
+                return "select";
+                break;
             default:
                 exit(200);
                 LOG_ERROR << "unable to find opname";
@@ -240,7 +243,6 @@ class Instruction : public User {
         return ((op_id_ == ret) || (op_id_ == br) || (op_id_ == switch1) || (op_id_ == store) || (op_id_ == mov) ||
                 (op_id_ == call && this->get_type()->is_void_type()));
     }
-
     bool is_phi() { return op_id_ == phi; }
     bool is_store() { return op_id_ == store; }
     bool is_alloca() { return op_id_ == alloca; }
@@ -288,6 +290,7 @@ class Instruction : public User {
     bool is_mulsub() { return op_id_ == mulsub; }
     bool is_rsub() { return op_id_ == rsub; }
     bool isTerminator() { return is_br() || is_ret() || is_switch(); }
+    bool is_select() {return op_id_ == select;}
 
     // help functions for common expression pass
     virtual bool is_hash_able() const { return false; }

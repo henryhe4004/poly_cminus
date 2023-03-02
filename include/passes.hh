@@ -18,6 +18,7 @@
 #include "LoopMerge.hh"
 #include "LoopSearch.hh"
 #include "LoopUnrolling.hh"
+#include "TransformSelect.hh"
 #include "LowerIR.hh"
 #include "Mem2Reg.hh"
 #include "MulWeaken.hh"

@@ -176,7 +176,7 @@ void PolyBuilder::visit(ASTFuncDef &node) {
     //     builder->create_ret(_ret);
     // }
     // scope.exit();
-}
+}     
 
 std::map<Instruction *, std::shared_ptr<Value>> iv2actual;
 std::unordered_set<Value *> poly_stmt_processed;
@@ -189,11 +189,14 @@ void PolyBuilder::replace_iv(ASTCall &call_node) {
         actual_params.push_back(val);
     }
     LOG_DEBUG << "to replace: " << call_node.id;
+    // auto main_func = *std::find_if(
+        // module->get_functions().begin(), module->get_functions().end(), [](auto f) { return f->get_name() == "main"; });
     if (call_node.id == "min") {
         assert(actual_params.size() == 2);
         auto lhs = actual_params[0];
         auto rhs = actual_params[1];
         auto icmp = builder->create_icmp_lt(lhs, rhs);
+        // auto insert_bb = BasicBlock::create(module, "temp_min_bb", main_func.get());
         val = builder->create_select(icmp, lhs, rhs);
         return;
     } else if (call_node.id == "max") {
