@@ -14,7 +14,12 @@ class Instgen {
     struct label {
         std::string_view lbl;
         int offset;
-        friend std::ostream &operator<<(std::ostream &os, const label &l) { return os << l.lbl << "+" << l.offset; }
+        friend std::ostream &operator<<(std::ostream &os, const label &l) {
+            if (l.offset == 0)
+                return os << l.lbl;
+            else
+                return os << l.lbl << "+" << l.offset;
+        }
     };
     struct mem {
         Reg reg;
@@ -46,14 +51,13 @@ class Instgen {
     static void smmul(Reg, Reg, Reg);
 
     static void cmp(Reg, Reg);
-    static void cmp(Reg, int);
     static void tst(Reg, int);
     static void lsl(Reg, Reg, Reg, std::string_view cond = ""sv);
     static void lsr(Reg, Reg, Reg, std::string_view cond = ""sv);
     static void asr(Reg, Reg, Reg, std::string_view cond = ""sv);
-    static void and_(Reg, Reg, Reg, std::string_view cond = ""sv);
+    
     static void asr(Reg, Reg, int);
-    static void and_(Reg, Reg, int);
+   
     static void bic(Reg, Reg, int);
     static void lsr(Reg, Reg, int);
     static void lsl(Reg, Reg, int);
@@ -96,7 +100,7 @@ class Instgen {
     static void str(Reg, Reg, Reg, std::string_view = ""sv);
     static void ldr(Reg, Reg, Reg, std::string_view = ""sv);
     static void adrl(Reg, label, std::string_view cond = ""sv);
-    static void adr(Reg,std::string_view label);
+
     static void vadd_f32(Reg, Reg, Reg);
     static void vsub_f32(Reg, Reg, Reg);
     static void vmul_f32(Reg, Reg, Reg);
@@ -115,6 +119,87 @@ class Instgen {
     static void vmov(Reg, Reg, std::string_view cond = ""sv);
     static void vpush(std::vector<Reg>);
     static void vpop(std::vector<Reg>);
+
+    // LoongArch
+    static void or_(Reg, Reg, Reg);
+    static void ori(Reg, Reg, int);
+    static void xori(Reg, Reg, int);
+    static void lu12i_w(Reg, int);
+    static void lu12i_d(Reg, int);
+    static void addi_w(Reg, Reg, int);
+    static void addi_d(Reg, Reg, int);
+    static void add_w(Reg, Reg, Reg);
+    static void add_d(Reg,Reg,Reg);
+    static void sub_w(Reg, Reg, Reg);
+    static void sub_d(Reg,Reg,Reg);
+    static void mul_w(Reg, Reg, Reg);
+    static void mul_d(Reg,Reg,Reg);
+    static void div_w(Reg, Reg, Reg);
+    static void div_d(Reg,Reg,Reg);
+    static void mod_w(Reg, Reg, Reg);
+    static void mod_d(Reg,Reg,Reg);
+
+    static void slt(Reg, Reg, Reg);
+    static void slti(Reg, Reg, int);
+
+    static void st_d(Reg, Reg, int = 0);
+    static void st_w(Reg, Reg, int = 0);
+    static void ld_d(Reg, Reg, int = 0);
+    static void ld_w(Reg, Reg, int = 0);
+
+    static void stx_d(Reg, Reg, Reg);
+    static void ldx_d(Reg, Reg, Reg);
+
+    static void stx_w(Reg, Reg, Reg);
+    static void ldx_w(Reg,Reg,Reg);
+
+    static void st_d(Reg, Reg, int, std::string_view cond);
+    static void st_w(Reg, Reg, int, std::string_view cond);
+    static void ld_d(Reg, Reg, int, std::string_view cond);
+    static void ld_w(Reg, Reg, int, std::string_view cond);
+
+    static void la_local(Reg, label);
+    static void ldptr_w(Reg, Reg, int = 0);
+    static void ldptr_d(Reg, Reg, int = 0);
+    static void jr(Reg);
+
+    static void beq(Reg, Reg, std::string_view sv);
+    static void bne(Reg, Reg, std::string_view sv);
+    static void bge(Reg, Reg, std::string_view sv);
+    static void blt(Reg, Reg, std::string_view sv);
+    static void bnez(Reg, std::string_view sv);
+    static void beqz(Reg, std::string_view sv);
+
+    static void fadd_s(Reg, Reg, Reg);
+    static void fsub_s(Reg, Reg, Reg);
+    static void fmul_s(Reg, Reg, Reg);
+    static void fdiv_s(Reg, Reg, Reg);
+
+    static void ftintrz_w_s(Reg, Reg);
+    static void ffint_s_w(Reg, Reg);
+
+    static void fld_s(Reg, Reg, int = 0, std::string_view cond = ""sv);
+    static void fst_s(Reg, Reg, int = 0, std::string_view cond = ""sv);
+    static void fmov_s(Reg, Reg);
+    static void movgr2fr_w(Reg, Reg);
+    static void movfr2gr_s(Reg, Reg);
+
+    static void fcmp_slt_s(std::string_view cc, Reg, Reg);
+    static void fcmp_sune_s(std::string_view cc, Reg, Reg);
+    static void bceqz(std::string_view cc, std::string_view sv);
+    static void bcnez(std::string_view cc, std::string_view sv);
+
+    static void reg_mov(Reg, Reg, std::string_view cond = ""sv);
+    static void maskeqz(Reg,Reg,Reg);
+    static void masknez(Reg,Reg,Reg);
+    static void and_(Reg, Reg, Reg);
+    static void andi(Reg,Reg,int);
+    static void srli_w(Reg, Reg, int);
+    static void srli_d(Reg,Reg,int);
+    static void slli_w(Reg,Reg,int);
+    static void slli_d(Reg,Reg,int);
+    static void srai_w(Reg,Reg,int);
+    static void srai_d(Reg,Reg,int);
 
   private:
     static std::ofstream *output;

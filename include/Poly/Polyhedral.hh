@@ -1,8 +1,10 @@
 #pragma once
+
 #include "AliasAnalysis.hh"
 #include "Dominators.hh"
 #include "LoopInfo.hh"
 #include "Pass.hh"
+#include <stack>
 #include "PolyBuilder.hh"
 #include <isl/options.h>
 #include <isl/typed_cpp.h>
@@ -13,13 +15,61 @@ isl::schedule_node optimize_band_node(isl::schedule_node n);
 #include <isl/typed_cpp.h>
 #include <unordered_map>
 class PolyStmt;
+class PolyCFG;
 class LoopExeOrder;
+class PolyCFG{
+    friend Polyhedral;
+  public:
+    PolyCFG(Module *m) : module(m){}
+    BasicBlock* get_loop_before_blocks() { return this->loop_before; }
+    BasicBlock* get_loop_exit_blocks() { return this->loop_exit; }
+    void add_loop_before_block(BasicBlock* bb) { this->loop_before = bb; }
+    void add_loop_exit_block(BasicBlock* bb) { this->loop_exit=bb; }
+    void transform_cfg(){
+        LOG_DEBUG<<"tansform_cfg";
+        auto main_func = *std::find_if(module->get_functions().begin(), module->get_functions().end(), [](auto f) { return f->get_name() == "main"; });
+        auto cur_func = main_func.get();
+        auto label_before_loop = this->get_loop_before_blocks(); //获取第一个loop_before_loop的前继
+        auto label_before_loop_pre_list = label_before_loop->get_pre_basic_blocks_not_ref();//获取其父节点
+        auto label_before_loop_pre = label_before_loop_pre_list.back();
+        auto label_exit_loop = this->get_loop_exit_blocks();//获取loop_exit
+        auto label_exit_loop_succ = label_exit_loop->get_succ_basic_blocks().back();//获取loop_after
+        //根据label_exit_loop删除除开label_before_loop_pre的所有前驱块
+        std::stack<BasicBlock *> delete_BB_stack;
+        std::stack<BasicBlock *> delete_BB_stack_new;
+        std::set<BasicBlock *> visit_BB;
+        delete_BB_stack.push(label_exit_loop);
+        while(!delete_BB_stack.empty()){
+            BasicBlock* now_BB = delete_BB_stack.top();
+            delete_BB_stack.pop();
+            visit_BB.insert(now_BB);
+            auto now_BB_pre_list = now_BB->get_pre_basic_blocks_not_ref();
+            for(auto now_BB_pre:now_BB_pre_list){
+                if(now_BB_pre==label_before_loop_pre||visit_BB.find(now_BB_pre)!=visit_BB.end()){
+                    continue;
+                }
+                delete_BB_stack.push(now_BB_pre);
+            }
+            LOG_DEBUG<<now_BB->print();
+            cur_func->remove_not_bb(std::dynamic_pointer_cast<BasicBlock>(now_BB->shared_from_this()));
+                // delete_BB_stack_new.push(now_BB);
+                // cur_func->remove_unreachable_basic_block(std::dynamic_pointer_cast<BasicBlock>(now_BB->shared_from_this()));
+        }
+    }
+  private:
+    Module *module;
+    BasicBlock* loop_before;
+    BasicBlock* loop_exit;
+};
+
+
 class Polyhedral : public Pass {
     friend PolyStmt;
     friend PolyBuilder;
+    friend PolyCFG;
 
   public:
-    Polyhedral(Module *m) : Pass(m), loop_info(m), dom{m}, ir_inserter(m, this) {}
+    Polyhedral(Module *m) : Pass(m), loop_info(m), dom{m}, ir_inserter(m, this), poly_cfg(m){}
     void run() override;
 
     std::string get_stmt_name(Value *v) {
@@ -111,6 +161,7 @@ class Polyhedral : public Pass {
     LoopInfo loop_info;
     Dominators dom;
     PolyBuilder ir_inserter;
+    PolyCFG poly_cfg;
     std::unordered_map<Value *, std::string> val2name;
     std::unordered_map<std::string, Value *> name2val;
 

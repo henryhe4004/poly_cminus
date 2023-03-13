@@ -294,23 +294,24 @@ int main(int argc, char *argv[]) {
         ll_output_stream.close();
         Codegen cg(builder.getModule(), output_stream, reg_num);
         cg.run();
-        if (std::find_if(module->get_functions().begin(), module->get_functions().end(), [](auto f) {
-                return f->get_name() == "memset32" and not f->get_use_list().empty();
-            }) != module->get_functions().end()) {
-            std::ifstream memset_os(library_path + "../lib/memset.s");
-            output_stream << memset_os.rdbuf();
-        }
-        if (std::find_if(module->get_functions().begin(), module->get_functions().end(), [](auto f) {
-                return f->get_name() == "memcpy_arm" and not f->get_use_list().empty();
-            }) != module->get_functions().end()) {
-            std::ifstream memcpy_os(library_path + "../lib/memcpy.s");
-            output_stream << memcpy_os.rdbuf();
-        }
+        // if (std::find_if(module->get_functions().begin(), module->get_functions().end(), [](auto f) {
+        //         return f->get_name() == "memset32" and not f->get_use_list().empty();
+        //     }) != module->get_functions().end()) {
+        //     std::ifstream memset_os(library_path + "../lib/memset.s");
+        //     output_stream << memset_os.rdbuf();
+        // }
+        // if (std::find_if(module->get_functions().begin(), module->get_functions().end(), [](auto f) {
+        //         return f->get_name() == "memcpy_arm" and not f->get_use_list().empty();
+        //     }) != module->get_functions().end()) {
+        //     std::ifstream memcpy_os(library_path + "../lib/memcpy.s");
+        //     output_stream << memcpy_os.rdbuf();
+        // }
         output_stream.close();
 
         // arm-linux-gnueabihf-gcc test.s lib/sylib.c
         // qemu-arm -L /usr/arm-linux-gnueabihf/ ./a.out
         // or in raspberry pi: gcc test.s lib/sylib.c
+        // std::string library_path = argv[0];
 
 #ifdef LOCAL_TEST
 

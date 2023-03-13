@@ -1,5 +1,4 @@
 #include "regalloc.hh"
-
 #include "Function.h"
 #include "LoopSearch.hh"
 #include "lir.h"
@@ -16,13 +15,20 @@ void RegAlloc::build_intervals() {
     auto &fbbs = f_->get_basic_blocks();
     for (auto it = fbbs.rbegin(); it != fbbs.rend(); ++it) {
         auto bb = it->get();
+        //开始计算inst_count的时候*2 所以减去的时候也*2
+        
         const auto from = inst_count - 2 * bb->get_num_inst();
         auto to = inst_count;
+        LOG_DEBUG<<from<<" "<<to;
         bb_range[bb] = {from, to};
+        //排序需要的起始点
         bb_starts.insert(from);
         std::set<Value *> live{};
-        for (auto succ_bb : bb->get_succ_basic_blocks())
+        // 入口处出发能够出现一个use（在def之前） 所有后继的liveIn就是该处的liveOut
+        for (auto succ_bb : bb->get_succ_basic_blocks()){
+
             live.insert(liveIn[succ_bb].begin(), liveIn[succ_bb].end());
+        }
         // we really could use c++20 ranges
         for (auto succ_bb : bb->get_succ_basic_blocks()) {
             for (auto instr : succ_bb->get_instructions()) {
@@ -32,7 +38,7 @@ void RegAlloc::build_intervals() {
                 for (int i = 0; i < phi->get_num_operand(); i += 2) {
                     if (phi->get_operand(i + 1).get() == bb) {
                         // succ_bb: %output = phi[op, bb]
-                        auto op = phi->get_operand(i).get();
+                        auto op = phi->get_operand(i).get();  
                         if (op->get_name().empty())
                             continue;
                         // used at `to`, but we add an right_open interval so plus 1
@@ -47,8 +53,10 @@ void RegAlloc::build_intervals() {
         for (auto val : live) {
             ssa_intervals[val].add_range(from, to);
         }
+        //倒序计算指令的活跃区间
         for (auto it = insts.rbegin(); it != insts.rend(); ++it, inst_count -= 2) {
             auto inst = it->get();
+            //((op_id_ == ret) || (op_id_ == br) || (op_id_ == store) || (op_id_ == mov) ||(op_id_ == call && this->get_type()->is_void_type())) 只有call指令有void_type
             if (not inst->get_type()->is_void_type() and live.count(inst)) {
                 // phi starts from `from`+1 TODO: changed
                 ssa_intervals[inst].set_from(inst->is_phi() ? from : inst_count - 1);
@@ -59,7 +67,9 @@ void RegAlloc::build_intervals() {
             }
             if (inst->is_alloca()) {
                 LOG_DEBUG << "allocate size: " << inst->get_type()->get_size();
+                //sp_offset[inst]记录分配前起始
                 sp_offset[inst] = stack_size[f_];
+                //函数f_的栈大小扩大
                 stack_size[f_] += static_cast<PointerType *>(inst->get_type())->get_size();
                 ssa_intervals.erase(inst);
                 continue;
@@ -167,6 +177,7 @@ RegAlloc::RegAlloc(Module *m, int reg_n) : m_(m), reg_num(reg_n) {}
 void RegAlloc::linear_scan_ssa() {
     f_reg_mapping.clear();
     std::set<interval_ssa> unhandled, active, inactive, handled;
+    //占有寄存器的区间集合 若还未占有 则用unhandled存储起来
     for (auto [_, interval] : ssa_intervals) {
         if (interval.reg.valid()) {
             active.insert(interval);
@@ -174,7 +185,9 @@ void RegAlloc::linear_scan_ssa() {
         }
         unhandled.insert(interval);
     }
+    //处理还未占有寄存器的
     while (not unhandled.empty()) {
+        //还未占有寄存器列表的第一个寄存器的活跃区间左边界
         auto current = *unhandled.begin();
         unhandled.erase(unhandled.begin());
         LOG_DEBUG << current;
@@ -183,16 +196,20 @@ void RegAlloc::linear_scan_ssa() {
             active.insert(current);
             continue;
         }
+        
         const auto position = current.start();
         // LOG_DEBUG << "checking for intervals in active that are handled or inactive";
+        
         for (auto itit = active.begin(); itit != active.end();) {
             auto it = *itit;
+            //如果某活跃区间已经结束 则释放其占有的寄存器
             if (it.end() <= position) {
                 itit = active.erase(itit);
                 handled.insert(it);
                 // reg_mapping[it.val].push_back(it);
                 continue;
             }
+            //如果position并没包括在某活跃区间，这种情况只有特殊情况排序才会发生 也就是position<it.begin();
             if (not it.cover(position)) {
                 itit = active.erase(itit);
                 inactive.insert(it);
@@ -211,6 +228,7 @@ void RegAlloc::linear_scan_ssa() {
             }
             if (it.cover(position)) {
                 itit = inactive.erase(itit);
+
                 active.insert(it);
                 continue;
             }
@@ -222,7 +240,7 @@ void RegAlloc::linear_scan_ssa() {
         auto is_float = current.val->get_type()->is_float_type();
         auto &freeUntilPosition = is_float ? freeUntilPositionFloat : freeUntilPositionInteger;
         auto &nextUsePos = is_float ? nextUsePosFloat : nextUsePosInteger;
-
+        //确保判断float正确 若不正确 抛出异常
         if (!(std::all_of(freeUntilPosition.begin(), freeUntilPosition.end(), [&](auto &tuple) {
                 auto &[r, p] = tuple;
                 return r.is_float == is_float;
@@ -234,9 +252,12 @@ void RegAlloc::linear_scan_ssa() {
             })))
             exit(15);
         for (auto &[r, p] : freeUntilPosition)
+        //数值类型的最大值
             p = std::numeric_limits<size_t>::max();
         for (auto it : inactive) {
+            //交集的最小值
             auto intersect = it.intersect(current);
+            //寄存器下一个等待的interval
             if (intersect.has_value()) {
                 if (not it.reg.is_float)
                     freeUntilPositionInteger[it.reg] = std::min(freeUntilPositionInteger[it.reg], intersect.value());
@@ -244,6 +265,7 @@ void RegAlloc::linear_scan_ssa() {
                     freeUntilPositionFloat[it.reg] = std::min(freeUntilPositionFloat[it.reg], intersect.value());
             }
         }
+        
         for (auto it : active) {
             if (not it.reg.is_float)
                 freeUntilPositionInteger[it.reg] = 0;
@@ -253,21 +275,24 @@ void RegAlloc::linear_scan_ssa() {
         size_t pos;
         Reg reg;
 
-        // find highest free position
+        // find highest free positionprocess onlun
+        //溢出策略：编译器将当前待分配区间[l,h]的上界h和占用中的活跃区间上界最大的h_x比较 选出最大溢出
+        //刚开始执行，占用中的活跃区间为空
         if (freeUntilPosition.empty())
             pos = 0;
         else
             std::tie(reg, pos) = *std::max_element(freeUntilPosition.begin(),
                                                    freeUntilPosition.end(),
                                                    [](auto &lhs, auto &rhs) { return lhs.second < rhs.second; });
-
+        
         if (pos == 0) {
             failed = true;
-        } else if (current.end() < pos) {
+            
+        } else if (current.end() < pos) {//当前寄存器完全够用
             // LOG_DEBUG << reg << " available for the whole interval";
             current.reg = reg;
             // reg_mapping[current.val].push_back(current);
-        } else {
+        } else {//寄存器不够用 将原来的interval拆分（split)
             LOG_DEBUG << reg << " available for the first part of the interval";
             current.reg = reg;
             auto split = current.split(pos);
@@ -277,10 +302,11 @@ void RegAlloc::linear_scan_ssa() {
             else
                 split_moves.push_back({current.val, pos});
         }
+        //第一次执行 
         if (failed) {
             for (auto &[r, p] : nextUsePos)
                 p = std::numeric_limits<size_t>::max();
-            // next use of it after start of current (considering infinite loop, better use lower_bound)
+            // next use of it after start of current (considering infinite loop, better use lower_bound) 找到该变量每次使用的位置
             for (auto it : active)
                 if (it.uses.lower_bound(position) != it.uses.end() and it.reg.is_float == is_float)
                     nextUsePos[it.reg] = std::min(nextUsePos[it.reg], *it.uses.lower_bound(position));
@@ -293,7 +319,7 @@ void RegAlloc::linear_scan_ssa() {
                 std::tie(reg, pos) = *std::max_element(
                     nextUsePos.begin(), nextUsePos.end(), [](auto &lhs, auto &rhs) { return lhs.second < rhs.second; });
             LOG_DEBUG << "Reg: " << reg << ", pos: " << pos;
-            if (current.uses.empty()) {
+            if (current.uses.empty()) { //如果没使用 直接放到栈上
                 // if (not sp_offset.count(current.val)) {  // allocate once
                 //     sp_offset[current.val] = stack_size[f_];
                 //     stack_size[f_] += current.val->get_type()->get_size();
@@ -302,10 +328,10 @@ void RegAlloc::linear_scan_ssa() {
                 LOG_WARNING << "spill whole current: " << current;
                 continue;
             }
-            if (*current.uses.begin() >= pos) {
-                if (*current.uses.begin() == pos and *current.uses.begin() == position) {
+            if (*current.uses.begin() >= pos) { //第一次使用的时候大于等于溢出策略
+                if (*current.uses.begin() == pos and *current.uses.begin() == position) { //溢出策略的右值等于当前点的左值
                     LOG_DEBUG << "too many active interval at " << pos << ", must spill current";
-                    if (std::next(current.uses.begin()) == current.uses.end())
+                    if (std::next(current.uses.begin()) == current.uses.end())//如果只使用一次
                         pos = std::numeric_limits<size_t>::max();
                     else
                         pos = *std::next(current.uses.begin());
@@ -432,9 +458,9 @@ void RegAlloc::resolve() {
     for (auto pre : f_->get_basic_blocks()) {
         for (auto suc : pre->get_succ_basic_blocks()) {
             auto livein = liveIn[suc];
-
-            auto begin = bb_range[suc].first;
-            auto pred_end = bb_range[pre.get()].second - 1;  // pred_end is not inclusive, need to minus one?
+            //因为把CFG图dfs成了一个序列 本来是挨着执行的 
+            auto begin = bb_range[suc].first;  //bb_range记录bb第一条指令到最终指令的interval  begin为后继第一条指令
+            auto pred_end = bb_range[pre.get()].second - 1;  // pred_end is not inclusive, need to minus one? pred_end为前驱最后一条指令的开区间
             std::set<Value *> phis{};
             for (auto val : suc->get_instructions())
                 if (auto phi = dynamic_cast<PhiInst *>(val.get())) {
@@ -442,6 +468,7 @@ void RegAlloc::resolve() {
                         phis.insert(phi);
                 } else
                     break;
+            //这些phi都是活跃的
             livein.merge(phis);
             LOG_DEBUG << "pred(" << pre->get_name() << ") end (minus one): " << pred_end << ", succ(" << suc->get_name()
                       << ") begin: " << begin;
@@ -452,12 +479,14 @@ void RegAlloc::resolve() {
                 // live at beginning of suc
                 PhiInst *phi = dynamic_cast<PhiInst *>(val);
                 armval move_to;
-                if (reg_mapping.count(val))
+                if (reg_mapping.count(val)) //val是否占用寄存器
                     LOG_DEBUG << val->get_name() << " starts " << reg_mapping.at(val).front().start();
                 else
                     LOG_DEBUG << val->get_name() << " always in memory";
-                if (phi and phi->get_parent() == suc) {  // reg_mapping[phi].front().start() == begin + 1
+                if (phi and phi->get_parent() == suc) {  // reg_mapping[phi].front().start() == begin + 1 
+                    //找到最开始定义的位置 如果是寄存器则返回寄存器 否者返回sp_offset
                     move_to = get_loc(val, begin);
+                    //phi指令其中一个前驱是已经定义了的
                     auto op = phi->input_of(pre.get());
                     if (not op)  // undef
                         continue;
@@ -482,8 +511,10 @@ void RegAlloc::resolve() {
                     // not phi, but its interval is split during `build_intervals`
                     move_from = get_loc(val, pred_end);
                 }
+                //中间重新def了
                 if (move_from != move_to) {
                     LOG_DEBUG << "resolve " << val->get_name();
+                
                     move_mapping[{pre.get(), suc}].push_back({move_to, move_from});
                 }
             }
@@ -493,6 +524,7 @@ void RegAlloc::resolve() {
             }
         }
     }
+    //
     for (auto &[val, pos] : split_moves) {
         armval pre = get_loc(val, pos - 1);
         bool pre_reg = std::holds_alternative<Reg>(pre);
@@ -577,13 +609,7 @@ void RegAlloc::run() {
         f_ = f.get();
         stack_size[f_] = 16;
         init_func();
-        LOG_DEBUG<<f->get_num_basic_blocks()<<"  "<<linear_list.size();
-        if (!(f->get_num_basic_blocks() == linear_list.size())){
-
-            LOG_ERROR<<"function->get_num_basic_blocks !=linear_list";
-            //暂时注释掉exit poly冗余的IR代码 应该特殊判断 
-            //exit(16);
-        }
+        // assert(f->get_num_basic_blocks() == linear_list.size());
         f->get_basic_blocks() = move(linear_list);
         build_intervals();
         check_intervals();
@@ -594,10 +620,9 @@ void RegAlloc::run() {
 
 void RegAlloc::check_intervals() {
     for (auto [k, v] : ssa_intervals) {
-        LOG_DEBUG<<k->print();
-        LOG_DEBUG<<v.val->print();
-        assert (k and k == v.val);
+        assert(k and k == v.val);
         assert(not v.s.empty());
+        // if (!(std::all_of(v.uses.begin(), v.uses.end(), [](auto n) { return n % 2 == 0; }))) exit(19);
     }
 }
 
@@ -610,13 +635,13 @@ void RegAlloc::dfs(BasicBlock *s) {
 
     auto base2loop = loops->get_base2loop();
     bb_set_t loopset{};
-    if (base2loop.count(s)) {
-        loopset = *base2loop.at(s);
-        loopset.erase(s);
+    if (base2loop.count(s)) {   //如果s是循环的起始块
+        loopset = *base2loop.at(s);  //取对应的loop_bb_set
+        loopset.erase(s); //删除头节点
     }
-    auto &sucbbs = s->get_succ_basic_blocks();
+    auto &sucbbs = s->get_succ_basic_blocks(); //当前s的后继bb
     for (auto it = loopset.begin(); it != loopset.end();) {  // we assume all the visited nodes in a loop are contiguous
-        if (visited[*it] or std::find(sucbbs.begin(), sucbbs.end(), *it) == sucbbs.end())
+        if (visited[*it] or std::find(sucbbs.begin(), sucbbs.end(), *it) == sucbbs.end())  //loop_bb中bb已经被访问过或者其不在s的后继bb中
             it = loopset.erase(it);
         else
             it++;
@@ -638,13 +663,23 @@ void RegAlloc::construct_linear_order() {
     linear_set.clear();
     linear_list.clear();
     const auto &base2loop = loops->get_base2loop();
+    // for(auto [k,v]:base2loop){
+    //     LOG_DEBUG<<"base："<<k->print();
+    //     LOG_DEBUG<<"里面的循环块";
+    //     for(auto a:*v.get()){
+    //         LOG_DEBUG<<a->print();
+    //     }
+    //     LOG_DEBUG<<"循环块结束";
+    // }
     std::set<BasicBlock *> bbs;
     auto entry = f_->get_entry_block().get();
     bbs.insert(entry);
     while (not bbs.empty()) {
         BasicBlock *current{};
+        
         for (auto bb : bbs) {
             // find a bb whose predecessors (except back edges) are already in list
+            //(bb的所有pred都在linear_set||bb的pred为循环内容)&&bb为循环主体
             if (auto &pred_of_bb = bb->get_pre_basic_blocks();
                 base2loop.count(bb) and std::all_of(pred_of_bb.begin(), pred_of_bb.end(), [&, this](auto pred) {
                     return linear_set.count(pred) or base2loop.at(bb)->count(pred);
@@ -652,7 +687,8 @@ void RegAlloc::construct_linear_order() {
                 // if all pred other than loop elements are in linear_set
                 current = bb;
                 break;
-            } else if (auto &pred_of_bb = bb->get_pre_basic_blocks();
+            }//非循环体bb但满足所有pred都在linear_set中 
+            else if (auto &pred_of_bb = bb->get_pre_basic_blocks();
                        std::all_of(pred_of_bb.begin(), pred_of_bb.end(), [&, this](auto pred) {
                            return linear_set.count(pred);
                        })) {
@@ -670,9 +706,11 @@ void RegAlloc::construct_linear_order() {
             //     }
             // }
         }
-        if (!(current and "must be non-null"))
-            exit(20);
+        LOG_DEBUG<<current->print();
+        assert(current and "must be non-null");
+        //如果为循环主体
         if (base2loop.count(current)) {
+            //current循环体里的所有BB
             auto &loopset = *base2loop.at(current);
             construct_linear_order_recur(loopset, current);
             for (auto loop_block : loopset) {
@@ -720,8 +758,7 @@ void RegAlloc::construct_linear_order_recur(const bb_set_t &loopset, BasicBlock 
                 current = bb;  // keep looking in case there is a loop header
             }
         }
-        if (!(current and "must be non-null"))
-            exit(21);
+        assert(current and "must be non-null");
         if (base2loop.count(current) and current != entry) {
             auto &inner_loop = *base2loop.at(current);
             construct_linear_order_recur(inner_loop, current);
@@ -766,7 +803,6 @@ void RegAlloc::init_func() {
         freeUntilPositionFloat[Reg(i, true)] = 0;
         nextUsePosFloat[Reg(i, true)] = 0;
     }
-    LOG_DEBUG<<"init_func end";
 }
 
 std::ostream &operator<<(std::ostream &os, const armval &val) {

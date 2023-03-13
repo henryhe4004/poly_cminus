@@ -8,13 +8,31 @@
 #include <variant>
 
 struct Reg {
-    enum class ID : int { sp = 13, lr, pc };
+    // $r0          $zero       constant 0
+    // $r1          $ra         return address
+    // $r2          $tp         thread pointer
+    // $r3          $sp         stack pointer
+    // $r4 - $r5    $a0 - $a1   argument, return value
+    // $r6 - $r11   $a2 - $a7   argument
+    // $r12 - $r20  $t0 - $t8   temporary
+    // $r21                     saved
+    // $r22         $fp         frame pointer
+    // $r23 - $r31  $s0 - $s8   static
+
+    // $scr2
+    // $scr3
+
+    // $f0 - $f7    $fa0 - $fa7
+    // $f8 - $f23   $ft0 - $ft15
+    // $f24 - $f31  $fs0 - $fs7
+
+    enum class ID : int { zero = -4, ra, tp, sp, ret, fp = 18 };
     int id;
     bool is_float;
     shift_type_t op = shift_type_t::LSL;
     int shift_n = 0;
 
-    explicit Reg(int id = -1, bool is_float = false) : id(id), is_float(is_float) {}
+    explicit Reg(int id = -5, bool is_float = false) : id(id), is_float(is_float) {}
     Reg(Reg::ID id) : id(static_cast<int>(id)), is_float(false) {}
 
     std::string get_name() const {
@@ -26,37 +44,49 @@ struct Reg {
     const bool operator<(const Reg &rhs) const {
         return this->id < rhs.id || (this->id == rhs.id && !this->is_float && rhs.is_float);
     }
-    const bool valid() const { return id != -1; }
+    const bool valid() const { return id != -5; }
     // bool is_reg() const override { return true; }
 
     bool operator==(const Reg &rhs) const { return id == rhs.id and is_float == rhs.is_float; }
     bool operator!=(const Reg &rhs) const { return !(*this == rhs); }
     bool lsl0() const { return op == shift_type_t::LSL and shift_n == 0; }
     friend std::ostream &operator<<(std::ostream &os, const Reg &r) {
-        if (not r.is_float) {
-            switch (r.id) {
-                case 13:
-                    return os << "sp";
-                case 14:
-                    return os << "lr";
-                case 15:
-                    return os << "pc";
-            }
-            os << "r" << r.id;
+        if (r.is_float) {
+            int id = r.id;
+            if (0 <= id and id <= 7)
+                return os << "$fa" << id;
+            else if (8 <= id and id <= 23)
+                return os << "$ft" << (id - 8);
+            else if (24 <= id and id <= 31)
+                return os << "$fs" << (id - 24);
+            else
+                abort();
         } else {
-            os << "s" << r.id;
-        }
-        if (r.lsl0())
-            return os;
-        switch (r.op) {
-            case shift_type_t::LSL:
-                return os << ", lsl" << " #" << r.shift_n;
-            case shift_type_t::ASR:
-                return os << ", asr" << " #" << r.shift_n;
-            case shift_type_t::LSR:
-                return os << ", lsr" << " #" << r.shift_n;
-            default:
-                LOG_ERROR << " ";
+            int id = r.id + 4;
+            switch (id) {
+                case 0:
+                    return os << "$zero";
+                case 1:
+                    return os << "$ra";
+                case 2:
+                    return os << "$tp";
+                case 3:
+                    return os << "$sp";
+                case 22:
+                    return os << "$fp";
+            }
+            if (4 <= id and id <= 11)
+                return os << "$a" << id - 4;
+            if (12 <= id and id <= 20)
+                return os << "$t" << id - 12;
+            if (23 <= id and id <= 31) {
+                // LOG_WARNING << "$s" << id - 23 << " may cause error";
+                return os << "$s" << id - 23;
+            }
+            LOG_ERROR << "invalid register id: " << id;
+            if (id < 0 or id > 31)
+                abort();
+            return os << "$r" << id;
         }
     }
 };

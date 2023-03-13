@@ -68,11 +68,14 @@ class RegAlloc {
         /// \returns second half of the split
         interval_ssa split(size_t pos) {
             LOG_DEBUG << "split: " << pos;
+            //第一个大于等于pos的左边界
             auto i = uses.lower_bound(pos);
             std::set<size_t> retuses(i, uses.end());
+            //删除i到uses》end的元素
             uses.erase(i, uses.end());
             S rets;
             S temp = I::right_open(0, pos) & s;
+            //中间[pos,i-1]
             rets = s - temp;
             s = move(temp);
 
@@ -146,17 +149,18 @@ class RegAlloc {
     std::map<Instruction *, std::set<Reg>> call_saves;
 
   private:
-  int reg_num;
+    int reg_num;
     std::set<size_t> bb_starts;  // only used to check if a position is the start of bb, don't preserve order
     inline void spill(Value *v) {
         if (not sp_offset.count(v)) {  // allocate once
             sp_offset[v] = stack_size[f_];
-            stack_size[f_] += (v->get_type()->get_size() < 4) ? 4 : v->get_type()->get_size();
+            stack_size[f_] += (v->get_type()->get_size() < 8) ? 8 : v->get_type()->get_size();
         }
     }
 
   public:
-      static const uint32_t int_arg_max_save_index=3, fp_arg_max_save_index=15;
+    static const uint32_t int_arg_max_save_index = 16, fp_arg_max_save_index = 15;
+    // Reg(16) = $r20 = $a8
 
     friend Codegen;
     RegAlloc(Module *, int reg_n = 10);

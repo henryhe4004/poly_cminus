@@ -95,7 +95,6 @@ void PolyBuilder::visit(ASTFuncDef &node) {
     //     param->accept(*this);
     //     param_types.push_back(cur_arr_inner_type);
     // }
-
     // fun_type = FunctionType::get(ret_type, param_types);
     // auto fun = Function::create(fun_type, node.id, module);
     // scope.push(node.id, fun);
@@ -110,31 +109,30 @@ void PolyBuilder::visit(ASTFuncDef &node) {
     auto label_before_loop = this->get_loop_before_blocks(); //获取第一个loop_before_loop的前继
     auto label_before_loop_pre_list = label_before_loop->get_pre_basic_blocks_not_ref();//获取其父节点
     auto label_before_loop_pre = label_before_loop_pre_list.back();
-
     auto label_exit_loop = this->get_loop_exit_blocks();//获取loop_exit
     auto label_exit_loop_succ = label_exit_loop->get_succ_basic_blocks().back();//获取loop_after
-    //根据label_exit_loop删除除开label_before_loop_pre的所有前驱块
-    std::stack<BasicBlock *> delete_BB_stack;
-    std::stack<BasicBlock *> delete_BB_stack_new;
-    std::set<BasicBlock *> visit_BB;
-    delete_BB_stack.push(label_exit_loop);
-    while(!delete_BB_stack.empty()){
-        BasicBlock* now_BB = delete_BB_stack.top();
-        delete_BB_stack.pop();
-        visit_BB.insert(now_BB);
-        auto now_BB_pre_list = now_BB->get_pre_basic_blocks_not_ref();
-        for(auto now_BB_pre:now_BB_pre_list){
-            if(now_BB_pre==label_before_loop_pre||visit_BB.find(now_BB_pre)!=visit_BB.end()){
-                continue;
-            }
-            delete_BB_stack.push(now_BB_pre);
-        }
-        LOG_DEBUG<<now_BB->print();
-        cur_func->remove_not_bb(std::dynamic_pointer_cast<BasicBlock>(now_BB->shared_from_this()));
-        // delete_BB_stack_new.push(now_BB);
-        // cur_func->remove_unreachable_basic_block(std::dynamic_pointer_cast<BasicBlock>(now_BB->shared_from_this()));
-    }
-    LOG_DEBUG<<label_before_loop_pre->print();   
+    // 根据label_exit_loop删除除开label_before_loop_pre的所有前驱块
+    // std::stack<BasicBlock *> delete_BB_stack;
+    // std::stack<BasicBlock *> delete_BB_stack_new;
+    // std::set<BasicBlock *> visit_BB;
+    // delete_BB_stack.push(label_exit_loop);
+    // while(!delete_BB_stack.empty()){
+    //     BasicBlock* now_BB = delete_BB_stack.top();
+    //     delete_BB_stack.pop();
+    //     visit_BB.insert(now_BB);
+    //     auto now_BB_pre_list = now_BB->get_pre_basic_blocks_not_ref();
+    //     for(auto now_BB_pre:now_BB_pre_list){
+    //         if(now_BB_pre==label_before_loop_pre||visit_BB.find(now_BB_pre)!=visit_BB.end()){
+    //             continue;
+    //         }
+    //         delete_BB_stack.push(now_BB_pre);
+    //     }
+    //     LOG_DEBUG<<now_BB->print();
+    //     cur_func->remove_not_bb(std::dynamic_pointer_cast<BasicBlock>(now_BB->shared_from_this()));
+    //     // delete_BB_stack_new.push(now_BB);
+    //     // cur_func->remove_unreachable_basic_block(std::dynamic_pointer_cast<BasicBlock>(now_BB->shared_from_this()));
+    // }
+    // LOG_DEBUG<<label_before_loop_pre->print();   
     auto insert_bb = BasicBlock::create(module, "temp_insertion_bb", main_func.get());  
     auto label_br = label_before_loop_pre->get_terminator_itr();
     //删除原来的跳转指令

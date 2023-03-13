@@ -271,13 +271,12 @@ void Polyhedral::run() {
             ir_inserter.set_insert_point(l->get_exit());
             ir_inserter.add_loop_exit_block(l->get_exit().get());
             ir_inserter.add_loop_before_block(l->get_preheader()->get_pre_basic_blocks_not_ref().back());
-            LOG_DEBUG<<l->get_preheader()->get_pre_basic_blocks().back()->print();
-            BasicBlock test = *(l->get_exit());
-            LOG_DEBUG<<"test: "<<test.print();
+            
+            poly_cfg.add_loop_exit_block(l->get_exit().get());
+            poly_cfg.add_loop_before_block(l->get_preheader()->get_pre_basic_blocks_not_ref().back());
             ir_inserter.name2stmt = std::move(name2stmt);
             ir_inserter.visit(*astRoot);
-            
-
+            poly_cfg.transform_cfg();
             add_scheduled(l);
             // isl_ctx_free(ctx);
         }

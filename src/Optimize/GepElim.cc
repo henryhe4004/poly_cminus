@@ -87,8 +87,8 @@ void GepElimination::remove_gep(BasicBlock *bb) {
                 // LOG_DEBUG << "pointer";
                 element_type = static_cast<PointerType *>(element_type)->get_element_type();
             } else {
-                exit(221);
                 LOG_ERROR << "Unknown element type";
+                exit(221);
             }
             auto index = GEP->get_operand(i)->shared_from_this();
             if (auto ci = std::dynamic_pointer_cast<ConstantInt>(index); ci and ci->get_value() == 0)

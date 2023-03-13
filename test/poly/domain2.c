@@ -2,7 +2,17 @@ int main() {
     int i, j, k;
     const int N = 10, M = 10, K = 20;
     int A[N], B[N], Z[2 * N];
-    // int X[N][M], C[N][K], D[K][M];
+    k=0;
+    while(k<N){
+        A[k]=1+k;
+        k=k+1;
+    }
+    k=0;
+    while(k<N){
+        B[k]=1+k;
+        k=k+1;
+    }
+    int X[N][M], C[N][K], D[K][M];
     i = 0;
     while (i < N) {
         j = 0;
@@ -12,4 +22,5 @@ int main() {
         }
         i = i + 1;
     }
+    return Z[18];
 }

@@ -1,6 +1,5 @@
 #include "codegen.hh"
 
-#include "errorcode.hh"
 #include "lir.h"
 #include "regalloc.hh"
 #include "utils.hh"
@@ -8,13 +7,12 @@
 #include <boost/hana/functional/fix.hpp>
 #include <map>
 #undef NDEBUG
-const Reg Codegen::temp_lhs_reg{12}, Codegen::temp_rhs_reg{10}, Codegen::temp_out_reg{11};
+const Reg Codegen::temp_lhs_reg(19), Codegen::temp_rhs_reg(20), Codegen::temp_out_reg(21);
 const Reg Codegen::temp_float_lhs_reg(30, true), Codegen::temp_float_rhs_reg(31, true);
 
 using std::map;
 using std::string;
 
-int temp_bb_counter{0};
 void gen_fcmp_move(FCmpInst *fcmp_inst, Reg target_Reg);
 
 template <class... Ts>
@@ -28,7 +26,6 @@ overloaded(Ts...) -> overloaded<Ts...>;
 // https://developer.arm.com/documentation/den0013/d/Application-Binary-Interfaces/Procedure-Call-Standard
 
 using std::string_view_literals::operator""sv;
-using std::string_literals::operator""s;
 
 string get_label_name(BasicBlock *bb) {
     auto func = bb->get_parent();
@@ -38,20 +35,27 @@ string get_label_name(BasicBlock *bb) {
 map<ConstantFP *, int> constFloat_to_index;
 std::string func_name;
 
-string get_label_name_float(ConstantFP *c) {
-    // .main_const:
-    //      .word 0x3f800000
-    LOG_DEBUG << c->get_value();
-    if (constFloat_to_index.find(c) == constFloat_to_index.end()) {
-        int count = constFloat_to_index.size();
-        constFloat_to_index[c] = count;
-    }
-    return "." + func_name + "_const+" + std::to_string(constFloat_to_index[c] * 4);
-}
+// string get_label_name_float(ConstantFP *c) {
+//     // .main_const:
+//     //      .word 0x3f800000
+//     LOG_DEBUG << c->get_value();
+//     if (constFloat_to_index.find(c) == constFloat_to_index.end()) {
+//         int count = constFloat_to_index.size();
+//         constFloat_to_index[c] = count;
+//     }
+//     return "." + func_name + "_const+" + std::to_string(constFloat_to_index[c] * 4);
+// }
 
 void Codegen::run() {
     RegAlloc ra(m, reg_num);
     ra.run();
+
+    // // 更新 reg.id 为从 4 开始的编号
+    // for (auto [val, intervals] : ra.reg_mapping)
+    //     for (auto interval : intervals)
+    //         // interval.reg.id += 4;
+    //         interval.reg = Reg(interval.reg.id + 4);
+
     this->reg_mapping = std::move(ra.reg_mapping);
     this->move_mapping = std::move(ra.move_mapping);
     this->sp_offset = std::move(ra.sp_offset);
@@ -59,9 +63,9 @@ void Codegen::run() {
     this->call_saves = std::move(ra.call_saves);
     // generate global variables
     gen_got();
-    output << "\t.fpu vfpv3-d16\n";
-    output << "\t.cpu cortex-a15\n";
-    output << "\t.section .note.GNU-stack,\"\",%progbits\n";
+    // output << "\t.fpu vfpv3-d16\n";
+    // output << "\t.cpu cortex-a15\n";
+    // output << "\t.section .note.GNU-stack,\"\",%progbits\n";
     output << "\t.text\n";
     for (auto f : m->get_functions())
         if (not f->is_declaration()) {
@@ -91,12 +95,7 @@ void Codegen::gen_got() {
     for (auto &i : GOT) {
         vecGOT[i.second] = i.first;
     }
-    for (auto &i : vecGOT)
-        output << "\t.global " << i->get_name() << "\n";
 
-    output << global_vars_label << ":\n";
-    for (auto &i : vecGOT)
-        output << "\t.long " << i->get_name() << "\n";
     output << "\t.data\n";
     std::for_each(vecGOT.begin(), vecGOT.end(), [&](GlobalVariable *gl) {
         if (gl->get_init()->is_constant_zero()) {
@@ -109,12 +108,12 @@ void Codegen::gen_got() {
         boost::hana::fix([&](auto print_init, Constant *ci) -> void {
             std::string init;
             if (ci->is_constant_zero()) {
-                // output << "\t.long " << 0 << " @ " << (allocated += 4) << "\n"; // do nothing
+                // output << "\t.word " << 0 << " # " << (allocated += 4) << "\n"; // do nothing
                 auto zero_init = dynamic_cast<ConstantZero *>(ci);
                 output << "\t.space " << zero_init->get_type()->get_size() << "\n";
                 allocated += zero_init->get_type()->get_size();
             } else if (ci->is_constant_int()) {
-                output << "\t.long " << dynamic_cast<ConstantInt *>(ci)->get_value() << " @ " << (allocated += 4)
+                output << "\t.word " << dynamic_cast<ConstantInt *>(ci)->get_value() << " # " << (allocated += 4)
                        << "\n";
             } else if (ci->is_constant_array()) {
                 auto cai = dynamic_cast<ConstantArray *>(ci);
@@ -124,8 +123,8 @@ void Codegen::gen_got() {
                 auto cfi = dynamic_cast<ConstantFP *>(ci);
                 auto float_value = cfi->get_value();
                 auto int_value = *(int *)&float_value;
-                output << "\t.long " << int_value << " @ " << allocated << "\n";
-                allocated += 4;
+                output << "\t.word " << int_value << " # " << allocated << "\n";
+                allocated += 4; 
             } else if (ci->is_constant_struct()) {
                 auto c_struct = dynamic_cast<ConstantStruct *>(ci);
                 for (auto ci : c_struct->get_elements())
@@ -141,55 +140,60 @@ void Codegen::gen_got() {
 
 void Codegen::gen_function(Function *f) {
     /*
-    .globl	test                    @ -- Begin function test
-    .p2align	2
-    .type	test,%function
-    .code	32                      @ @test
+    .globl	main
+    .type	main, @function                 # @test
     */
-    output << "\t.global\t" << f->get_name() << "\n";
-    output << "\t.p2align\t2\n";
-    output << "\t.type\t" << f->get_name() << ",%function\n";
-    output << "\t.code\t32\n";
+    output << "\t.globl\t" << f->get_name() << "\n";
+    // output << "\t.p2align\t2\n";
+    output << "\t.type\t" << f->get_name() << ", @function\n";
+    // output << "\t.code\t32\n";
     output << f->get_name() << ":\n";
-    prologue(f);
+    prologue(f); // 序言 执行fp指向sp sp向下增长的内容
 
     pos = 0;
     caller_saved.clear();
 
     int load_index_float = 0, load_index_int = 0;
     std::vector<Value *> load_on_stack;
+    //参数放入寄存器中 放不下就放到栈上
     for (auto arg_share : f->get_args()) {
         auto arg = arg_share.get();
         auto is_float = arg->get_type()->is_float_type();
+        //fp_arg_max_save_index = 15 int_arg_max_save_index =16 
         int max_save_index = is_float ? RegAlloc::fp_arg_max_save_index : RegAlloc::int_arg_max_save_index;
+        
         int &save_index = is_float ? load_index_float : load_index_int;
-
         if (save_index > max_save_index)
             load_on_stack.push_back(arg);
         else
             save_index++;
     }
+    //如果参数大于寄存器 放入内存中
+    LOG_DEBUG<<load_on_stack.size();
     for (size_t i = 0; i < load_on_stack.size(); i++) {
         auto arg = load_on_stack[i];
         LOG_DEBUG << "Load argument " << arg->get_name() << " from stack";
+
+        if (callee_saved_size > 0)
+            LOG_ERROR << "callee_saved_size = " << callee_saved_size;
 
         if (not arg->get_use_list().empty()) {
             if (reg_mapping.count(arg) and get(arg).valid()) {
                 Reg reg = get(arg);
                 if (not reg.is_float)
-                    Instgen::ldr(get(arg), Reg(11), i * 4 + callee_saved_size * 4);
+                    Instgen::ld_d(get(arg), Reg::ID::fp, i * 8 + callee_saved_size * 4);  // 需要更改 * 4
                 else
-                    Instgen::vldr(get(arg), Reg(11), i * 4 + callee_saved_size * 4);
+                    Instgen::fld_s(get(arg), Reg::ID::fp, i * 8 + callee_saved_size * 4);
             } else {
-                Instgen::ldr(temp_lhs_reg, Reg(11), i * 4 + callee_saved_size * 4);
-                Instgen::str(temp_lhs_reg, Reg::ID::sp, sp_offset.at(arg));
+                Instgen::ld_d(temp_lhs_reg, Reg::ID::fp, i * 8 + callee_saved_size * 4);
+                Instgen::st_d(temp_lhs_reg, Reg::ID::sp, sp_offset.at(arg));
             }
         }
     }
-
+    //生成basic block
     for (auto bb : f->get_basic_blocks())
         gen_bb(bb.get());
-    epilogue(f);
+    epilogue(f); //恢复原来的fp与sp
     output << "\n";
 }
 
@@ -212,73 +216,98 @@ void Codegen::prologue(Function *f) {
     // Instgen::push({Reg(11), Reg::ID::lr});
 
     // 最好保证 sp 为 8 的倍数，否则浮点操作可能出错
-    output << "\tpush\t{r4-r11, lr}\n";  // temp
-    output << "\tvpush\t{d8-d15}\n";     // temp
-    Instgen::sub(Reg::ID::sp, Reg::ID::sp, 4);
-    callee_saved_size = (11 - 4 + 2) + 2 * (15 - 8 + 1) + 1;
+    // output << "\tpush\t{r4-r11, lr}\n";  // temp
+    // output << "\tvpush\t{d8-d15}\n";     // temp
+    // Instgen::sub(Reg::ID::sp, Reg::ID::sp, 4);
+    // callee_saved_size = (11 - 4 + 2) + 2 * (15 - 8 + 1) + 1;
 
-    func_name = f->get_name();
-    constFloat_to_index.clear();
+    // func_name = f->get_name();
+    // constFloat_to_index.clear();
 
-    Instgen::mov(Reg(11), Reg::ID::sp);
+    // Instgen::mov(Reg(11), Reg::ID::sp);
     auto size = stack_size.at(f);
+    LOG_DEBUG << "stack size: " << size;
     if (size % 8 != 0)
         size += 4;
-    if (encode_arm_immediate(size))
-        Instgen::sub(Reg::ID::sp, Reg::ID::sp, size);
+
+    Instgen::mov(Reg::ID::fp, Reg::ID::sp);
+
+    if (size < 2048)
+        Instgen::addi_d(Reg::ID::sp, Reg::ID::sp, -size);
     else {
-        move(temp_lhs_reg, size);
-        Instgen::sub(Reg::ID::sp, Reg::ID::sp, temp_lhs_reg);
+        Instgen::mov(temp_lhs_reg, size);
+        Instgen::sub_d(Reg::ID::sp, Reg::ID::sp, temp_lhs_reg);
     }
+    Instgen::st_d(Reg::ID::ra, Reg::ID::sp, 8);  // 不同于 gcc 的结果的栈布局，gcc 在 size - 8 处存储 ra
+
+    // 	addi.d	$r3,$r3,-16
+    //  st.d	$r22,$r3,8
+    // addi.d	$r22,$r3,16
+
+    // output << "\t.cfi_startproc\n";
+    // output << "\t.cfi_def_cfa_offset " << size << "\n";
+    // output << "\t.cfi_offset " << 1 << ", " << 8 << "\n";
 }
 
 void Codegen::epilogue(Function *f) {
     auto size = stack_size.at(f);
     if (size % 8 != 0)
         size += 4;
-    size += 4;
-    if (encode_arm_immediate(size))
-        Instgen::add(Reg::ID::sp, Reg::ID::sp, size);
-    else {
-        move(temp_lhs_reg, size);
-        Instgen::add(Reg::ID::sp, Reg::ID::sp, temp_lhs_reg);
-    }
+    // if (encode_arm_immediate(size))
+    //     Instgen::add(Reg::ID::sp, Reg::ID::sp, size);
+    // else {
+    //     move(temp_lhs_reg, size);
+    //     Instgen::add(Reg::ID::sp, Reg::ID::sp, temp_lhs_reg);
+    // }
     // Instgen::add(Reg::ID::sp, Reg::ID::sp, stack_size.at(f));
     // Instgen::pop({Reg(11), Reg::ID::pc});
-    output << "\tvpop\t{d8-d15}\n";  // temp
-    output << "\tpop\t{r4-r11, pc}\n";
+    // output << "\tvpop\t{d8-d15}\n";  // temp
+    // output << "\tpop\t{r4-r11, pc}\n";
 
-    if (constFloat_to_index.size() > 0) {
-        output << "." << func_name << "_const:\n";
-        vector<ConstantFP *> constFloats(constFloat_to_index.size());
-        for (auto [value, index] : constFloat_to_index)
-            constFloats[index] = value;
-        for (auto c : constFloats) {
-            auto floatValue = c->get_value();
-            auto intValue = *(int *)&floatValue;
-            output << "\t.word " << intValue << "\n";
-        }
+    // if (constFloat_to_index.size() > 0) {
+    //     output << "." << func_name << "_const:\n";
+    //     vector<ConstantFP *> constFloats(constFloat_to_index.size());
+    //     for (auto [value, index] : constFloat_to_index)
+    //         constFloats[index] = value;
+    //     for (auto c : constFloats) {
+    //         auto floatValue = c->get_value();
+    //         auto intValue = *(int *)&floatValue;
+    //         output << "\t.word " << intValue << "\n";
+    //     }
+    // }
+
+    // 	ld.d	$r22,$r3,8
+    // addi.d	$r3,$r3,16
+    // jr	$r1
+    Instgen::ld_d(Reg::ID::ra, Reg::ID::sp, 8);
+
+    if (size < 2048)
+        Instgen::addi_d(Reg::ID::sp, Reg::ID::sp, size);
+    else {
+        Instgen::mov(temp_lhs_reg, size);
+        Instgen::add_d(Reg::ID::sp, Reg::ID::sp, temp_lhs_reg);
     }
+    Instgen::jr(Reg::ID::ra);
+    // output << "\t.cfi_endproc\n";
     output << "\n";
 }
 
 void Codegen::gen_bb(BasicBlock *bb) {
+    LOG_DEBUG<<""<<get_label_name(bb);
     output << get_label_name(bb) << ":\n";
     for (auto inst : bb->get_instructions()) {
         auto i = inst.get();
         resolve_split(pos);
-
         if (not inst->is_br())  // if branch inst, resolve in it
             resolve_split(pos + 1);
         if (not inst->is_call() and (not inst->is_void() and inst->get_use_list().empty())) {
-            output << "\t@ " << pos << " ignored\n";
+            output << "\t# " << pos << " ignored\n";
             pos += 2;
             continue;
         }
-        if (not inst->is_switch())
-            output << "\t@ " << pos << " " << inst->print() << "\n";
-        else
-            output << "\t@ " << pos << " switch ...\n";
+        output << "\t# " << pos << " " << inst->print() << "\n";
+        LOG_DEBUG<<inst->print();
+        //具体每条指令的asm生成
         switch (inst->get_instr_type()) {
             case Instruction::alloca:  // already allocated
                 break;
@@ -329,16 +358,17 @@ void Codegen::gen_bb(BasicBlock *bb) {
             case Instruction::ret:
                 gen_ret(dynamic_cast<ReturnInst *>(i));
                 break;
-            case Instruction::switch1:
-                // TODO
-                gen_switch(bb, dynamic_cast<SwitchInst *>(i));
-                break;
+            // case Instruction::switch1:
+            //     // TODO
+            //     gen_switch(bb, dynamic_cast<SwitchInst *>(i));
+            //     break;
             case Instruction::mov:
                 move(inst->get_operand(0).get(), inst->get_operand(1).get());
                 pos -= 2;  // mov is not allocated register
                 break;
             case Instruction::inttoptr:
                 // no need for additional operations, just move values
+                // TODO: check if `inst` has a const offset to an alloca so we can save one register
                 move(i, inst->get_operand(0).get());
                 break;
             case Instruction::ptrtoint:
@@ -352,7 +382,9 @@ void Codegen::gen_bb(BasicBlock *bb) {
                 load(i, inst->get_operand(0).get(), dynamic_cast<LoadInst *>(i));
                 break;
             case Instruction::getelementptr:
-                exit(CODEGEN_ERROR, "Please enable '-gep-elim'"s);
+                LOG_ERROR<<"getelementptr:";
+                LOG_ERROR << "Please enable '-gep-elim'";
+                exit(209);
                 break;
             case Instruction::muladd:
             case Instruction::mulsub:
@@ -368,8 +400,11 @@ void Codegen::gen_bb(BasicBlock *bb) {
 }
 
 void Codegen::resolve_split(size_t pos, bool store, bool load, bool move) {
-    if (ordered_moves.count(pos))
+
+    if (ordered_moves.count(pos)){
+        LOG_DEBUG<<"ordered_moves.count(pos)";
         parallel_mov(ordered_moves[pos]);
+    }
 }
 
 void Codegen::get_reg_and_move(Reg &r, Value *v) {
@@ -400,7 +435,7 @@ void Codegen::gen_ternary(Instruction *inst) {
 void Codegen::gen_binary(BinaryInst *inst) {
     auto lhs = inst->get_operand(0).get();
     auto rhs = inst->get_operand(1).get();
-
+    //浮点数加减乘除
     if (inst->is_fadd() or inst->is_fsub() or inst->is_fmul() or inst->is_fdiv()) {
         Reg lhs_reg = temp_float_lhs_reg;
         Reg rhs_reg = temp_float_rhs_reg;
@@ -418,13 +453,13 @@ void Codegen::gen_binary(BinaryInst *inst) {
         Reg dest_float_reg = get(inst, true);
 
         if (inst->is_fadd())
-            Instgen::vadd_f32(dest_float_reg, lhs_reg, rhs_reg);
+            Instgen::fadd_s(dest_float_reg, lhs_reg, rhs_reg);
         else if (inst->is_fsub())
-            Instgen::vsub_f32(dest_float_reg, lhs_reg, rhs_reg);
+            Instgen::fsub_s(dest_float_reg, lhs_reg, rhs_reg);
         else if (inst->is_fmul())
-            Instgen::vmul_f32(dest_float_reg, lhs_reg, rhs_reg);
+            Instgen::fmul_s(dest_float_reg, lhs_reg, rhs_reg);
         else if (inst->is_fdiv())
-            Instgen::vdiv_f32(dest_float_reg, lhs_reg, rhs_reg);
+            Instgen::fdiv_s(dest_float_reg, lhs_reg, rhs_reg);
     } else {
         Reg lhs_reg = temp_lhs_reg;
         Reg rhs_reg = temp_rhs_reg;
@@ -438,17 +473,15 @@ void Codegen::gen_binary(BinaryInst *inst) {
                 if (not lhs_no_reg and get(lhs).valid())
                     lhs_reg = get(lhs);
                 move(lhs_reg, lhs);
-
                 Reg dest_reg = get(inst, true).valid() ? get(inst, true) : Reg(11);
-
                 if (inst->is_and_())
-                    Instgen::and_(dest_reg, lhs_reg, rhs_val);
+                    Instgen::andi(dest_reg, lhs_reg, rhs_val);
                 else if (inst->is_shl())
-                    Instgen::lsl(dest_reg, lhs_reg, rhs_val);
+                    Instgen::slli_w(dest_reg, lhs_reg, rhs_val);
                 else if (inst->is_ashr())
-                    Instgen::asr(dest_reg, lhs_reg, rhs_val);
+                    Instgen::srai_w(dest_reg, lhs_reg, rhs_val);
                 else if (inst->is_lshr())
-                    Instgen::lsr(dest_reg, lhs_reg, rhs_val);
+                    Instgen::srli_w(dest_reg, lhs_reg, rhs_val);
                 return;
             }
         }
@@ -463,67 +496,46 @@ void Codegen::gen_binary(BinaryInst *inst) {
         rhs_reg.op = inst->get_op2_shift_type();
         rhs_reg.shift_n = inst->get_op2_shift_bits();
 
-        Reg dest_reg = get(inst, true).valid() ? get(inst, true) : Reg(11);
+        Reg dest_reg = get(inst, true).valid() ? get(inst, true) : Reg(11);  // ?
         if (inst->is_add())
-            Instgen::add(dest_reg, lhs_reg, rhs_reg, set_flag);
+            Instgen::add_d(dest_reg, lhs_reg, rhs_reg);
         else if (inst->is_sub())
-            Instgen::sub(dest_reg, lhs_reg, rhs_reg, set_flag);
+            Instgen::sub_d(dest_reg, lhs_reg, rhs_reg);
         else if (inst->is_mul())
-            Instgen::mul(dest_reg, lhs_reg, rhs_reg, set_flag);
+            Instgen::mul_w(dest_reg, lhs_reg, rhs_reg);
         else if (inst->is_div())
-            Instgen::sdiv(dest_reg, lhs_reg, rhs_reg);
-        else if (inst->is_srem()) {
-            // 先 sdiv，再 mls
-            Reg temp_reg;
-            if (lhs_reg != temp_lhs_reg and rhs_reg != temp_lhs_reg)
-                temp_reg = temp_lhs_reg;
-            else if (lhs_reg != temp_rhs_reg and rhs_reg != temp_rhs_reg)
-                temp_reg = temp_rhs_reg;
-            else
-                temp_reg = dest_reg;
-            // if (dynamic_cast<ConstantInt *>(rhs) and dynamic_cast<ConstantInt *>(rhs)->get_value() == 998244353) {
-            //     Instgen::movw(temp_reg, 51217);
-            //     Instgen::movt(temp_reg, 4405);
-            //     Instgen::smmul(temp_reg, lhs_reg, temp_reg);
-            //     Instgen::asr(rhs_reg, temp_reg, 26);
-            //     Instgen::add(temp_reg, rhs_reg, temp_reg, "", "lsr #31");
-            //     Instgen::movw(rhs_reg, 1);
-            //     Instgen::movt(rhs_reg, 15232);
-            //     Instgen::mls(dest_reg, temp_reg, rhs_reg, lhs_reg);
-            // } else {
-            Instgen::sdiv(temp_reg, lhs_reg, rhs_reg);
-            Instgen::mls(dest_reg, rhs_reg, temp_reg, lhs_reg);
-            // }
-        } else if (inst->is_shl())
-            Instgen::lsl(dest_reg, lhs_reg, rhs_reg, set_flag);
-        else if (inst->is_lshr())
-            Instgen::lsr(dest_reg, lhs_reg, rhs_reg, set_flag);
-        else if (inst->is_ashr())
-            Instgen::asr(dest_reg, lhs_reg, rhs_reg, set_flag);
-        else if (inst->is_and_())
-            Instgen::and_(dest_reg, lhs_reg, rhs_reg, set_flag);
-        else if (inst->is_rsub())
-            Instgen::rsub(dest_reg, lhs_reg, rhs_reg, set_flag);
-        else
+            Instgen::div_w(dest_reg, lhs_reg, rhs_reg);
+        else if (inst->is_srem())
+            Instgen::mod_w(dest_reg, lhs_reg, rhs_reg);
+        else{
+            LOG_DEBUG<<"error";
             exit(ABNORMAL_ERROR, "unknown binary instruction");
+        }
     }
 }
-
 void Codegen::gen_select(SelectInst *sel) {
+    LOG_DEBUG<<"select";
     Reg target_reg = get(sel, true);
     auto lhs = sel->get_operand(1).get();
     auto rhs = sel->get_operand(2).get();
-
     auto test_bit = sel->get_operand(0).get();
-    // Reg cond_reg = get();
-    LOG_DEBUG << "TODO";
     if (reg_mapping.count(test_bit)) {
+        //maskeqz必须为寄存器 得判断是否为立即数
+        Reg lhs_reg = temp_lhs_reg;
+        Reg rhs_reg = temp_rhs_reg;
         auto cond_reg = get(test_bit);
-        Instgen::tst(cond_reg, 1);
-        move(target_reg, lhs, "NE");
-        // auto rhs_reg = get(rhs);
-        // LOG_DEBUG<<"target_reg"<<target_reg<<"  rhs_reg"<<rhs_reg;
-        move(target_reg, rhs, "EQ");
+        auto lhs_const = dynamic_cast<ConstantInt *>(lhs);
+        auto rhs_const = dynamic_cast<ConstantInt *>(rhs);
+        if (not lhs_const)
+            lhs_reg = get(lhs);
+        if (not rhs_const)
+            rhs_reg = get(rhs);
+        move(lhs_reg, lhs);
+        move(rhs_reg, rhs);
+       
+        //maskeqz是和0判断 所以相同及不满足条件取右值
+        Instgen::maskeqz(target_reg,rhs_reg,cond_reg);
+        Instgen::masknez(target_reg,lhs_reg,cond_reg);
     } else
         LOG_ERROR << "no reg";
 }
@@ -544,39 +556,43 @@ void Codegen::gen_cmp(CmpInst *inst) {
         rhs_reg = temp_rhs_reg;
         move(temp_rhs_reg, rhs);
     }
-    Instgen::cmp(lhs_reg, rhs_reg);
-    BasicBlock *parent = inst->get_parent();
+    // BasicBlock *parent = inst->get_parent();
     // 或者在寄存器分配的时候，如果无需保存，就不分配了
-    if (reg_mapping.count(inst)) {
-        LOG_DEBUG << "must save this compare result";
-        Reg target_Reg = get(inst, true);
-        switch (inst->get_cmp_op()) {
-            case CmpOp::GT:
-                Instgen::movgt(target_Reg, 1);
-                Instgen::movle(target_Reg, 0);
-                break;
-            case CmpOp::GE:
-                Instgen::movge(target_Reg, 1);
-                Instgen::movlt(target_Reg, 0);
-                break;
-            case CmpOp::LT:
-                Instgen::movlt(target_Reg, 1);
-                Instgen::movge(target_Reg, 0);
-                break;
-            case CmpOp::LE:
-                Instgen::movle(target_Reg, 1);
-                Instgen::movgt(target_Reg, 0);
-                break;
-            case CmpOp::EQ:
-                Instgen::moveq(target_Reg, 1);
-                Instgen::movne(target_Reg, 0);
-                break;
-            case CmpOp::NE:
-                Instgen::movne(target_Reg, 1);
-                Instgen::moveq(target_Reg, 0);
-                break;
+    // if (reg_mapping.count(inst)) {
+    // LOG_DEBUG << "must save this compare result";
+    Reg target_Reg = temp_rhs_reg;
+
+    // <    slt l,r     1 represents l < r
+    // >    slt r,l     1 represents l > r
+    // <=   slt r,l     0 represents l <= r
+    // >=   slt l,r     0 represents l >= r
+    // ==   sub l,r     0 represents l == r
+    // !=   sub l,r     1 represents l != r
+    switch (inst->get_cmp_op()) {
+        case CmpOp::LT:
+            Instgen::slt(target_Reg, lhs_reg, rhs_reg);
+            break;
+        case CmpOp::GE:
+            Instgen::slt(target_Reg, lhs_reg, rhs_reg);
+            break;
+        case CmpOp::GT:
+            Instgen::slt(target_Reg, rhs_reg, lhs_reg);
+            break;
+        case CmpOp::LE:
+            Instgen::slt(target_Reg, rhs_reg, lhs_reg);
+            break;
+        case CmpOp::EQ:
+             Instgen::sub_w(target_Reg, lhs_reg, rhs_reg);
+            break;
+        case CmpOp::NE:
+            Instgen::sub_w(target_Reg, lhs_reg, rhs_reg);
+            break;
+        default:{
+            LOG_ERROR<<"abnormal_error";
+            exit(ABNORMAL_ERROR, "unknown compare instruction");
         }
     }
+    // }
 }
 
 void Codegen::gen_fcmp(FCmpInst *inst) {
@@ -595,8 +611,24 @@ void Codegen::gen_fcmp(FCmpInst *inst) {
         rhs_reg = temp_float_rhs_reg;
         move(temp_float_rhs_reg, rhs);
     }
-    Instgen::vcmp_f32(lhs_reg, rhs_reg);
-    output << "\tvmrs\tAPSR_nzcv, fpscr\n";
+
+    // fcmp_slt_s
+    // fcmp_sune_s
+    switch (inst->get_cmp_op()) {
+        case CmpOp::LT:
+        case CmpOp::GE:
+            Instgen::fcmp_slt_s("$fcc0", lhs_reg, rhs_reg);
+            break;
+        case CmpOp::GT:
+        case CmpOp::LE:
+            Instgen::fcmp_slt_s("$fcc0", rhs_reg, lhs_reg);
+            break;
+        case CmpOp::EQ:
+        case CmpOp::NE:
+            Instgen::fcmp_sune_s("$fcc0", lhs_reg, rhs_reg);
+            break;
+    }
+
     if (reg_mapping.count(inst))
         gen_fcmp_move(inst, get(inst, true));
 }
@@ -604,37 +636,37 @@ void Codegen::gen_fcmp(FCmpInst *inst) {
 void gen_cmp_move(CmpInst *cmp_inst, Reg target_Reg) {
     // 将比较结果写入寄存器
     switch (cmp_inst->get_cmp_op()) {
-        case CmpOp::GT:
-            Instgen::movgt(target_Reg, 1);
-            Instgen::movle(target_Reg, 0);
-            break;
-        case CmpOp::GE:
-            Instgen::movge(target_Reg, 1);
-            Instgen::movlt(target_Reg, 0);
-            break;
         case CmpOp::LT:
-            Instgen::movlt(target_Reg, 1);
-            Instgen::movge(target_Reg, 0);
+        case CmpOp::GT:
+        case CmpOp::NE:
+            Instgen::mov(target_Reg, Codegen::temp_rhs_reg);
             break;
         case CmpOp::LE:
-            Instgen::movle(target_Reg, 1);
-            Instgen::movgt(target_Reg, 0);
-            break;
+        case CmpOp::GE:
         case CmpOp::EQ:
-            Instgen::moveq(target_Reg, 1);
-            Instgen::movne(target_Reg, 0);
-            break;
-        case CmpOp::NE:
-            Instgen::movne(target_Reg, 1);
-            Instgen::moveq(target_Reg, 0);
+            Instgen::xori(target_Reg, Codegen::temp_rhs_reg, 1);
             break;
     }
 }
 
 void gen_fcmp_move(FCmpInst *fcmp_inst, Reg target_Reg) {
+    // Reg rhs_reg;
+    // if(reg_mapping.count(fcmp_inst) and get(fcmp_inst).valid()){
+    //     rhs_reg = get(fcmp_inst);
+    // }else{
+    //     //target_Reg 有没有可能就要保存到temp_rhs_reg?
+    //     rhs_reg = temp_rhs_reg;
+    // }
+    // <    slt l,r     1 represents l < r
+    // >    slt r,l     1 represents l > r
+    // <=   slt r,l     0 represents l <= r
+    // >=   slt l,r     0 represents l >= r
+    // ==   sub l,r     0 represents l == r
+    // !=   sub l,r     1 represents l != r
     switch (fcmp_inst->get_cmp_op()) {
         case CmpOp::LT:
             Instgen::ite("mi");
+            
             Instgen::movmi(target_Reg, 1);
             Instgen::movpl(target_Reg, 0);
             break;
@@ -707,8 +739,8 @@ void Codegen::gen_fptosi(FpToSiInst *inst) {
     Reg dest_reg = get(inst, true);
 
     move(rhs_float_reg, rhs);
-    Instgen::vcvt_s32_f32(temp_reg, rhs_float_reg);
-    Instgen::vmov(dest_reg, temp_reg);
+    Instgen::ftintrz_w_s(temp_reg, rhs_float_reg);
+    Instgen::reg_mov(dest_reg, temp_reg);
 }
 
 void Codegen::gen_sitofp(SiToFpInst *inst) {
@@ -727,8 +759,8 @@ void Codegen::gen_sitofp(SiToFpInst *inst) {
         // pos += 2;
 
         gen_cmp_move(cmp_inst, temp_lhs_reg);
-        Instgen::vmov(dest_float_reg, temp_lhs_reg);
-        Instgen::vcvt_f32_s32(dest_float_reg, dest_float_reg);
+        Instgen::reg_mov(dest_float_reg, temp_lhs_reg);
+        Instgen::ffint_s_w(dest_float_reg, dest_float_reg);
     } else if (is_fcmp and rhs_unsaved) {
         auto fcmp_inst = dynamic_cast<FCmpInst *>(rhs);
 
@@ -737,11 +769,11 @@ void Codegen::gen_sitofp(SiToFpInst *inst) {
         // pos += 2;
 
         gen_fcmp_move(fcmp_inst, temp_lhs_reg);
-        Instgen::vmov(dest_float_reg, temp_lhs_reg);
-        Instgen::vcvt_f32_s32(dest_float_reg, dest_float_reg);
+        Instgen::reg_mov(dest_float_reg, temp_lhs_reg);
+        Instgen::ffint_s_w(dest_float_reg, dest_float_reg);
     } else {
         move(dest_float_reg, rhs);
-        Instgen::vcvt_f32_s32(dest_float_reg, dest_float_reg);
+        Instgen::ffint_s_w(dest_float_reg, dest_float_reg);
     }
 }
 
@@ -764,24 +796,18 @@ void Codegen::gen_function_call(std::string func_name,
     // sort float_regs
     std::sort(float_regs.begin(), float_regs.end(), [](Reg a, Reg b) { return a.id < b.id; });
 
-    int total_save_size = 0;
+    int regs_size = regs.size() * 8;
+    int total_save_size = regs.size() * 8 + float_regs.size() * 8;
 
-    Instgen::push(regs);
-    total_save_size += regs.size() * 4;
-
-    if (regs.size() % 2 == 1) {
-        Instgen::sub(Reg::ID::sp, Reg::ID::sp, 4);
-        total_save_size += 4;
-    }
+    for (int i = 0; i < regs.size(); i++)
+        Instgen::st_d(regs[i], Reg::ID::sp, -total_save_size + i * 8);
+    for (int i = 0; i < float_regs.size(); i++)
+        Instgen::fst_s(float_regs[i], Reg::ID::sp, -total_save_size + regs_size + i * 8);
+    Instgen::addi_d(Reg::ID::sp, Reg::ID::sp, -total_save_size);
 
     // 不能写成 Instgen::vpush(float_regs)
     // vpush 和 vpop 必须连续，且最好对齐 8 字节
     // TODO: 可能改成 vstr 和 vldr
-    for (auto float_reg : float_regs) {
-        Instgen::vpush({float_reg});
-        Instgen::sub(Reg::ID::sp, Reg::ID::sp, 4);
-        total_save_size += 8;
-    }
     stack_growth_since_entry += total_save_size;
 
     std::vector<std::pair<armval, armval>> moves_int, moves_float;
@@ -809,8 +835,11 @@ void Codegen::gen_function_call(std::string func_name,
     if (arg_stack_size % 2 == 1)
         arg_stack_size++;
     // new offset added to sp!
-    Instgen::sub(Reg::ID::sp, Reg::ID::sp, arg_stack_size * 4);
-    stack_growth_since_entry += arg_stack_size * 4;
+    Instgen::addi_d(Reg::ID::sp, Reg::ID::sp, -arg_stack_size * 8);
+    stack_growth_since_entry += arg_stack_size * 8;
+
+    // if (arg_stack_size > 0)
+    //     LOG_WARNING << "arg_stack_size = " << arg_stack_size;
 
     for (int i = 0; i < save_on_stack.size(); ++i) {
         auto value = save_on_stack[i];
@@ -818,13 +847,16 @@ void Codegen::gen_function_call(std::string func_name,
         if (not is_float) {
             Reg temp_reg = temp_lhs_reg;
             move(temp_reg, value);
-            Instgen::str(temp_reg, Reg::ID::sp, i * 4);
+            Instgen::st_d(temp_reg, Reg::ID::sp, i * 8);
         } else {
             Reg temp_reg = temp_float_lhs_reg;
             move(temp_reg, value);
-            Instgen::vstr(temp_reg, Reg::ID::sp, i * 4);
+            Instgen::fst_s(temp_reg, Reg::ID::sp, i * 8);
         }
     }
+    // print moves_int
+    for (auto &move : moves_int)
+        LOG_DEBUG << "move " << move.first << " to " << move.second;
 
     parallel_mov(moves_int);
     parallel_mov(moves_float);
@@ -834,24 +866,25 @@ void Codegen::gen_function_call(std::string func_name,
         // get(dest_inst) 要在 move(Reg(i), all_value[i]) 之后执行
         auto dest_reg = get(dest_inst, true);
         if (not dest_inst->get_type()->is_float_type())
-            Instgen::mov(dest_reg, Reg(0));
+            Instgen::mov(dest_reg, Reg::ID::ret);
         else
-            Instgen::vmov(dest_reg, Reg(0, true));
+            Instgen::reg_mov(dest_reg, Reg(0, true));
     }
 
-    Instgen::add(Reg::ID::sp, Reg::ID::sp, arg_stack_size * 4);
-    stack_growth_since_entry -= arg_stack_size * 4;
+    Instgen::addi_d(Reg::ID::sp, Reg::ID::sp, arg_stack_size * 8);
+    stack_growth_since_entry -= arg_stack_size * 8;
 
-    std::reverse(float_regs.begin(), float_regs.end());
-    for (auto float_reg : float_regs) {
-        Instgen::add(Reg::ID::sp, Reg::ID::sp, 4);
-        Instgen::vpop({float_reg});
-    }
+    // if (arg_stack_size > 0)
+    //     LOG_WARNING << "arg_stack_size = " << arg_stack_size;
+
     stack_growth_since_entry -= total_save_size;
 
-    if (regs.size() % 2 == 1)
-        Instgen::add(Reg::ID::sp, Reg::ID::sp, 4);
-    Instgen::pop(regs);
+    Instgen::addi_d(Reg::ID::sp, Reg::ID::sp, total_save_size);
+
+    for (int i = 0; i < regs.size(); i++)
+        Instgen::ld_d(regs[i], Reg::ID::sp, -total_save_size + i * 8);
+    for (int i = 0; i < float_regs.size(); i++)
+        Instgen::fld_s(float_regs[i], Reg::ID::sp, -total_save_size + regs_size + i * 8);
 }
 
 void Codegen::gen_call(CallInst *inst) {
@@ -868,9 +901,10 @@ void Codegen::gen_call(CallInst *inst) {
             dest_inst = inst;
         else {
             if (not inst->get_use_list().empty()) {
-                exit(211);
                 LOG_ERROR << inst->print() << "of " << inst->get_function()->get_name()
                           << " used and stored in memory\n";
+                exit(211);
+              
             }
         }
     }
@@ -882,102 +916,86 @@ void Codegen::gen_ret(ReturnInst *inst) {
         return;
     auto value = inst->get_operand(0).get();
     auto is_float = value->get_type()->is_float_type();
-    if (not is_float)
-        move(Reg(0), value);
-    else
-        move(Reg(0, true), value);
-}
+    // if (not is_float)
+    move(Reg::ID::ret, value);
+    // else
+    //     move(Reg(0, true), value);
 
-void Codegen::gen_switch(BasicBlock *bb, SwitchInst *inst) {
-    // we only generate switch instructions where rhs are constants
-    BasicBlock *default_block = inst->get_default_block();
-    std::map<int, BasicBlock *> constants{};
-    for (int i = 2; i < inst->get_num_operand(); i += 2)
-        constants.insert({dynamic_cast<ConstantInt *>(inst->get_operand(i).get())->get_value(),
-                          dynamic_cast<BasicBlock *>(inst->get_operand(i + 1).get())});
-    int min_val = constants.begin()->first;
-    int max_val = constants.rbegin()->first;
-    for (int i = min_val; i < max_val; i++)
-        constants.insert({i, dynamic_cast<BasicBlock *>(inst->get_operand(1).get())});
-    Reg test_reg = get(inst->get_operand(0).get());
-    Instgen::sub(temp_lhs_reg, test_reg, min_val);
-    Instgen::cmp(temp_lhs_reg, max_val - min_val);
-    resolve_moves(bb, default_block, "hi");
-    Instgen::bhi(get_label_name(default_block));
-    temp_bb_counter++;
-    auto temp_label = ".LTEMP_" + std::to_string(temp_bb_counter);
-    Instgen::adr(temp_rhs_reg, temp_label);
-    Reg temp_reg = temp_lhs_reg;
-    temp_reg.shift_n = 2;
-    Instgen::ldr(temp_rhs_reg, temp_rhs_reg, temp_reg);
-    // temp, wrong!
-    output << "\t@ move data\n";
-    for (int i = 3; i < inst->get_num_operand(); i += 2) {
-        auto target = dynamic_cast<BasicBlock *>(inst->get_operand(i).get());
-        resolve_moves(bb, target);
-    }
-    Instgen::mov(Reg::ID::pc, temp_rhs_reg);
-    output << temp_label << ":\n";
-    for (auto [_, bb] : constants)
-        output << "\t.long\t" << get_label_name(bb) << "\n";
+    // addi.w	$r12,$r0,111
+    // or	$r4,$r12,$r0
 }
 
 void Codegen::gen_br(BasicBlock *bb, BranchInst *inst) {
+    //直接跳转
     if (inst->get_num_operand() == 1) {
         auto target = dynamic_cast<BasicBlock *>(inst->get_operand(0).get());
         resolve_split(pos + 1);
         resolve_moves(bb, target);
         Instgen::b(get_label_name(target));
-    } else {
+    } 
+    //带判断条件的跳转
+    else {
         auto target_then = dynamic_cast<BasicBlock *>(inst->get_operand(1).get());
         auto target_else = dynamic_cast<BasicBlock *>(inst->get_operand(2).get());
         auto label_then = get_label_name(target_then);
         auto label_else = get_label_name(target_else);
 
         auto cond_inst = inst->get_operand(0).get();
+        //使用到了LIR吗 我感觉IR不全是MIR
         bool update_flag = m->level == Module::LIR and isa<BinaryInst>(cond_inst);
+        //常数 或cmp比较后的0|1 或已经保存在寄存器的指令
         auto is_int_cond = update_flag or dynamic_cast<ConstantInt *>(cond_inst) or
                            dynamic_cast<CmpInst *>(cond_inst) or
                            (reg_mapping.count(cond_inst) and get(cond_inst).valid());
         if (is_int_cond) {
             auto cmp_inst = dynamic_cast<CmpInst *>(cond_inst);
             auto constant_bool = dynamic_cast<ConstantInt *>(cond_inst);
-
+            Reg rhs_reg = temp_lhs_reg;
             CmpOp cond = CmpOp::NE;  // move compare result from elsewhere
+            //因为是cmp的 所以当时会将cmp的结果放在某一寄存器
             if (reg_mapping.count(cond_inst) and not update_flag) {
-                Reg cond_reg = get(cond_inst);
-                Instgen::tst(cond_reg, 1);
+                rhs_reg = get(cond_inst);
+                // move(temp_rhs_reg,reg,cond);
+                Instgen::mov(temp_rhs_reg,rhs_reg);
+                //修改arm的cpsr寄存器 我们使用loong可以不用修改 loong没有cpsr寄存器 使用temp_rhs_reg
+                // Instgen::tst(cond_reg, 1);
             } else if (constant_bool) {
-                Instgen::mov(temp_lhs_reg, constant_bool->get_value());
-                Instgen::tst(temp_lhs_reg, 1);
+                Instgen::mov(temp_rhs_reg, constant_bool->get_value());
+                // Instgen::tst(temp_lhs_reg, 1);
+                // rhs_reg = temp_lhs_reg;
             } else if (update_flag)
                 cond = inst->get_cmp_op();
             else
                 cond = cmp_inst->get_cmp_op();
 
+            auto inner_label = get_label_name(inst->get_parent()) + "_inner";
+
+            // <    slt l,r     1 represents l < r
+            // >    slt r,l     1 represents l > r
+            // <=   slt r,l     0 represents l <= r
+            // >=   slt l,r     0 represents l >= r
+            // ==   sub l,r     0 represents l == r
+            // !=   sub l,r     1 represents l != r
+            LOG_DEBUG<<"may yes";
+            switch (cond) {
+                case CmpOp::LT:
+                case CmpOp::GT:
+                case CmpOp::NE:
+                    Instgen::beqz(temp_rhs_reg, inner_label);
+                    break;
+                case CmpOp::LE:
+                case CmpOp::GE:
+                case CmpOp::EQ:
+                    Instgen::bnez(temp_rhs_reg, inner_label);
+                    break;
+            }
+            LOG_DEBUG<<"maybe not";
+
             resolve_split(pos + 1);
             resolve_moves(bb, target_then, cond._to_string());
 
-            switch (cond) {
-                case CmpOp::EQ:
-                    Instgen::beq(label_then);
-                    break;
-                case CmpOp::NE:
-                    Instgen::bne(label_then);
-                    break;
-                case CmpOp::GT:
-                    Instgen::bgt(label_then);
-                    break;
-                case CmpOp::GE:
-                    Instgen::bge(label_then);
-                    break;
-                case CmpOp::LT:
-                    Instgen::blt(label_then);
-                    break;
-                case CmpOp::LE:
-                    Instgen::ble(label_then);
-                    break;
-            }
+            Instgen::b(label_then);
+            output << "\t" << inner_label << ":\n";
         } else {
             auto fcmp_inst = dynamic_cast<FCmpInst *>(cond_inst);
 
@@ -986,28 +1004,26 @@ void Codegen::gen_br(BasicBlock *bb, BranchInst *inst) {
             // pos += 2;
 
             resolve_split(pos + 1);
-            resolve_moves(bb, target_then, fcmp_inst->get_cmp_op()._to_string());
+            resolve_moves(bb, target_then, fcmp_inst->get_cmp_op()._to_string());  // ? 位置不同
 
+            auto inner_label = get_label_name(inst->get_parent()) + "_inner";
+            // bceqz "$fcc0"
+            // bcnez
             switch (fcmp_inst->get_cmp_op()) {
-                case CmpOp::EQ:
-                    Instgen::beq(label_then);
-                    break;
-                case CmpOp::NE:
-                    Instgen::bne(label_then);
-                    break;
-                case CmpOp::GT:
-                    Instgen::bhi(label_then);
-                    break;
-                case CmpOp::GE:
-                    Instgen::bpl(label_then);
-                    break;
                 case CmpOp::LT:
-                    Instgen::blt(label_then);
+                case CmpOp::GT:
+                case CmpOp::NE:
+                    Instgen::bceqz("$fcc0", inner_label);
                     break;
                 case CmpOp::LE:
-                    Instgen::ble(label_then);
+                case CmpOp::GE:
+                case CmpOp::EQ:
+                    Instgen::bcnez("$fcc0", inner_label);
                     break;
             }
+
+            Instgen::b(label_then);
+            output << "\t" << inner_label << ":\n";
         }
         // phi
         resolve_moves(bb, target_else);
@@ -1017,81 +1033,64 @@ void Codegen::gen_br(BasicBlock *bb, BranchInst *inst) {
 }
 
 void Codegen::move(Reg r, int val, std::string_view cond) {
-    unsigned int u = static_cast<unsigned int>(val);
-    unsigned int nu = -u;
-
-    if (u < imm16 or nu < imm8)
-        Instgen::mov(r, val, cond);
-    else {
-        unsigned upper16 = (u >> 16) & 0xffff;
-        unsigned lower16 = u & 0xffff;
-        Instgen::mov(r, lower16, cond);
-        Instgen::movt(r, upper16, cond);
-    }
+    Instgen::mov(r, val, cond);
 }
 
 void Codegen::move(Reg r, Value *val, std::string_view cond) {
-    if (!(r.valid()))
-        exit(22);
-    if (!(val))
-        exit(23);
+    assert(r.valid());
+    assert(val);
     if (auto const_val = dynamic_cast<Constant *>(val)) {
         if (const_val->is_constant_int()) {
             auto const_int = dynamic_cast<ConstantInt *>(val)->get_value();
             if (not r.is_float) {
                 move(r, const_int, cond);
             } else {
+                //浮点寄存器
                 auto temp_reg = temp_lhs_reg;
                 move(temp_reg, const_int, cond);
-                Instgen::vmov(r, temp_reg, cond);
+                Instgen::reg_mov(r, temp_reg, cond);
             }
         } else {
             auto const_fp = dynamic_cast<ConstantFP *>(val);
             // if (not r.is_float)
             //     Instgen::ldr(r, get_label_name_float(const_fp));
             // else
-            //     Instgen::vldr(r, get_label_name_float(const_fp));
+            //     Instgen::fld_s(r, get_label_name_float(const_fp));
 
             auto float_value = const_fp->get_value();
             auto int_value = *(int *)&float_value;
-            auto high_16 = (int_value >> 16) & 0xffff;
-            auto low_16 = int_value & 0xffff;
 
             // WARN: 使用 temp_rhs_reg 可能引起问题
-            Instgen::movw(temp_rhs_reg, low_16, cond);
-            Instgen::movt(temp_rhs_reg, high_16, cond);
-            Instgen::vmov(r, temp_rhs_reg, cond);
+            Instgen::mov(temp_rhs_reg, int_value, cond);
+            Instgen::reg_mov(r, temp_rhs_reg, cond);
         }
     } else if (auto gl = dynamic_cast<GlobalVariable *>(val)) {
         LOG_DEBUG << "Global variable " << gl->get_name();
-        Instgen::adrl(r, Instgen::label{global_vars_label, GOT.at(gl) * 4}, cond);
-        Instgen::ldr(r, r, 0, cond);
+        Instgen::la_local(r, Instgen::label{gl->get_name(), 0});
+        // Instgen::la_local(r, Instgen::label{gl->get_name(), GOT.at(gl) * 4});
     } else {
         if (reg_mapping.count(val) and get(val).valid()) {
             // bool is_float = val->get_type()->is_float_type();
             // if (not r.is_float and not is_float)
-            if (not r.is_float)
-                Instgen::mov(r, get(val), cond);
-            else
-                Instgen::vmov(r, get(val), cond);
+            Instgen::reg_mov(r, get(val), cond);
         } else {
             auto inst = dynamic_cast<Instruction *>(val);
             auto arg = dynamic_cast<Argument *>(val);
-            if (!((inst or arg) and "must be an instruction or an argument"))
-                exit(24);
+            assert((inst or arg) and "must be an instruction or an argument");
             if (inst and inst->is_alloca()) {
+                //感觉像相对地址+起始地址
                 auto size = sp_offset.at(inst) + stack_growth_since_entry;
                 if (encode_arm_immediate(size))
-                    Instgen::add(r, Reg::ID::sp, size, cond);
+                    Instgen::addi_d(r, Reg::ID::sp, size);
                 else {
                     move(r, size, cond);
-                    Instgen::add(r, r, Reg::ID::sp, cond);
+                    Instgen::add_d(r, r, Reg::ID::sp);
                 }
             } else {
                 if (not r.is_float)
-                    Instgen::ldr(r, Reg::ID::sp, sp_offset.at(val) + stack_growth_since_entry, cond);
+                    Instgen::ld_d(r, Reg::ID::sp, sp_offset.at(val) + stack_growth_since_entry, cond);
                 else
-                    Instgen::vldr(r, Reg::ID::sp, sp_offset.at(val) + stack_growth_since_entry, cond);
+                    Instgen::fld_s(r, Reg::ID::sp, sp_offset.at(val) + stack_growth_since_entry, cond);
                 LOG_DEBUG << '"' << val->print() << '"' << " is in memory";
             }
         }
@@ -1138,12 +1137,13 @@ void Codegen::parallel_mov(std::vector<std::pair<armval, armval>> &moves_input, 
         edges.clear();
         bool is_int = i == 0;
         auto &moves = is_int ? moves_int : moves_float;
+
         std::function<void(Reg, Reg, size_t, std::string_view)> str =
-            is_int ? [](Reg a, Reg b, size_t c, std::string_view d) -> void { Instgen::str(a, b, c, d); }
-                   : [](Reg a, Reg b, size_t c, std::string_view d) -> void { Instgen::vstr(a, b, c, d); };
+            is_int ? [](Reg a, Reg b, size_t c, std::string_view d) -> void { Instgen::st_d(a, b, c, d); }
+                   : [](Reg a, Reg b, size_t c, std::string_view d) -> void { Instgen::fst_s(a, b, c, d); };
         std::function<void(Reg, Reg, size_t, std::string_view)> ldr =
-            is_int ? [](Reg a, Reg b, size_t c, std::string_view d) -> void { Instgen::ldr(a, b, c, d); }
-                   : [](Reg a, Reg b, size_t c, std::string_view d) -> void { Instgen::vldr(a, b, c, d); };
+            is_int ? [](Reg a, Reg b, size_t c, std::string_view d) -> void { Instgen::ld_d(a, b, c, d); }
+                   : [](Reg a, Reg b, size_t c, std::string_view d) -> void { Instgen::fld_s(a, b, c, d); };
         for (auto &b : moves) {
             std::tie(to1, from) = b;
             if (std::holds_alternative<Reg>(to1)) {
@@ -1151,6 +1151,8 @@ void Codegen::parallel_mov(std::vector<std::pair<armval, armval>> &moves_input, 
                 std::visit(overloaded{[&](Reg from) {
                                           nodes.insert({from.id, to.id});
                                           edges.insert({from.id, to.id});
+                                          LOG_DEBUG << "move " << from << " to " << to
+                                                    << " in visit  from.id = " << from.id << " to.id = " << to.id;
                                       },
                                       [](Value *_) { return; },
                                       [](size_t _) { return; }},
@@ -1175,14 +1177,27 @@ void Codegen::parallel_mov(std::vector<std::pair<armval, armval>> &moves_input, 
             }
         }
 
+        std::string nodes_str;
+        for (auto &n : nodes)
+            nodes_str += std::to_string(n) + " ";
+        LOG_DEBUG << "nodes: " << nodes_str;
+
+        for (auto &[from, to] : edges)
+            LOG_DEBUG << "edge: " << from << " -> " << to;
+
         std::vector<std::pair<int, int>> rev_topo = topo_sort(nodes, edges, is_int ? move_t::ireg : move_t::freg);
+
+        LOG_DEBUG << "topo sort result:";
+        for (auto &[from, to] : rev_topo) {
+            LOG_DEBUG << "move " << Reg(from) << " to " << Reg(to);
+        }
 
         if (i == 0)
             for (auto [from, to] : rev_topo)
                 Instgen::mov(Reg(to), Reg(from), cond);
         else
             for (auto [from, to] : rev_topo)
-                Instgen::vmov(Reg(to, true), Reg(from, true), cond);
+                Instgen::reg_mov(Reg(to, true), Reg(from, true), cond);
 
         for (auto &b : moves) {
             std::tie(to1, from) = b;
@@ -1214,19 +1229,24 @@ void Codegen::store(Value *val, Value *ptr, StoreInst *store) {
             if (store->get_num_operand() > 2) {
                 auto op2 = store->get_operand(2).get();
                 if (reg_mapping.count(op2)) {
+                    LOG_DEBUG<<"reg_mapping.count(op2)";
                     Reg offset = get(op2);
                     offset.shift_n = store->get_op2_shift_bits();
                     offset.op = store->get_op2_shift_type();
-                    Instgen::str(r, p, offset);
+                    Instgen::stx_w(r,p,offset);
+                    // Instgen::str(r, p, offset);
                 } else {
+                    LOG_DEBUG<<"reg_mapping not count";
                     // constant offset, add with sp if it's alloca
                     ConstantInt *offset = dynamic_cast<ConstantInt *>(op2);
-                    Instgen::str(r, p, offset->get_value());
+                    // Instgen::str(r, p, offset->get_value());
+                    Instgen::st_w(r,p,offset->get_value());
                 }
             } else {
-                Instgen::str(r, p);
+                Instgen::st_w(r, p);
             }
         } else {
+            LOG_DEBUG<<"ptr not in regmapping ";
             assert(isa<AllocaInst>(ptr));
             if (store->get_num_operand() > 2) {
                 auto op2 = store->get_operand(2).get();
@@ -1234,17 +1254,22 @@ void Codegen::store(Value *val, Value *ptr, StoreInst *store) {
                     Reg offset = get(op2);
                     offset.shift_n = store->get_op2_shift_bits();
                     offset.op = store->get_op2_shift_type();
-                    Instgen::add(temp_rhs_reg, Reg::ID::sp, offset);
-                    Instgen::str(r, temp_rhs_reg, stack_growth_since_entry + sp_offset.at(ptr));
+                    // Instgen::add(temp_rhs_reg, Reg::ID::sp, offset);
+                    Instgen::add_d(temp_rhs_reg,Reg::ID::sp,offset);
+                    Instgen::st_w(r,temp_rhs_reg,stack_growth_since_entry+sp_offset.at(ptr));
+                    // Instgen::str(r, temp_rhs_reg, stack_growth_since_entry + sp_offset.at(ptr));
                 } else {
                     ConstantInt *offset = dynamic_cast<ConstantInt *>(store->get_operand(2).get());
-                    Instgen::str(r, Reg::ID::sp, stack_growth_since_entry + sp_offset.at(ptr) + offset->get_value());
+                    Instgen::st_w(r,Reg::ID::sp,stack_growth_since_entry+sp_offset.at(ptr)+offset->get_value());
+                    // Instgen::str(r, Reg::ID::sp, stack_growth_since_entry + sp_offset.at(ptr) + offset->get_value());
                 }
             } else {
-                Instgen::str(r, Reg::ID::sp, sp_offset.at(ptr) + stack_growth_since_entry);
+                Instgen::st_w(r,Reg::ID::sp,sp_offset.at(ptr) + stack_growth_since_entry);
+                // Instgen::str(r, Reg::ID::sp, sp_offset.at(ptr) + stack_growth_since_entry);
             }
         }
     } else {
+        //2023 TODO HJ
         Reg r = reg_mapping.count(val) and get(val).valid() ? get(val) : temp_float_lhs_reg;
         move(r, val);
         if (reg_mapping.count(ptr)) {
@@ -1255,18 +1280,18 @@ void Codegen::store(Value *val, Value *ptr, StoreInst *store) {
                 assert(isa<Constant>(op2));
                 // constant offset, add with sp if it's alloca
                 ConstantInt *offset = dynamic_cast<ConstantInt *>(op2);
-                Instgen::vstr(r, p, offset->get_value());
+                Instgen::fst_s(r, p, offset->get_value());
             } else {
-                Instgen::vstr(r, p);
+                Instgen::fst_s(r, p);
             }
         } else {
             assert(isa<AllocaInst>(ptr));
             if (store->get_num_operand() > 2) {
                 auto op2 = store->get_operand(2).get();
                 ConstantInt *offset = dynamic_cast<ConstantInt *>(op2);
-                Instgen::vstr(r, Reg::ID::sp, sp_offset.at(ptr) + stack_growth_since_entry + offset->get_value());
+                Instgen::fst_s(r, Reg::ID::sp, sp_offset.at(ptr) + stack_growth_since_entry + offset->get_value());
             } else {
-                Instgen::vstr(r, Reg::ID::sp, sp_offset.at(ptr) + stack_growth_since_entry);
+                Instgen::fst_s(r, Reg::ID::sp, sp_offset.at(ptr) + stack_growth_since_entry);
             }
         }
     }
@@ -1288,35 +1313,45 @@ void Codegen::load(Value *val, Value *ptr, LoadInst *load) {
                     Reg offset = get(op2);
                     offset.shift_n = load->get_op2_shift_bits();
                     offset.op = load->get_op2_shift_type();
-                    Instgen::ldr(r, p, offset);
+                    // Instgen::ldr(r, p, offset);
+                    Instgen::ldx_w(r,p,offset);
                 } else {
                     // constant offset, add with sp if it's alloca
                     ConstantInt *offset = dynamic_cast<ConstantInt *>(op2);
-                    Instgen::ldr(r, p, offset->get_value());
+                    Instgen::ld_w(r,p,offset->get_value());
+                    // Instgen::ldr(r, p, offset->get_value());
                 }
             } else {
-                Instgen::ldr(r, p);
+                Instgen::ld_w(r, p);
             }
         } else {  // alloca
             assert(isa<AllocaInst>(ptr));
             // alloca + offset
+            LOG_DEBUG<<load->get_num_operand();
             if (load->get_num_operand() > 1) {
                 auto op2 = load->get_operand(1).get();
                 if (reg_mapping.count(op2)) {
                     Reg offset = get(op2);
                     offset.shift_n = load->get_op2_shift_bits();
                     offset.op = load->get_op2_shift_type();
-                    Instgen::add(temp_rhs_reg, Reg::ID::sp, offset);
-                    Instgen::ldr(r, temp_rhs_reg, stack_growth_since_entry + sp_offset.at(ptr));
+                    // Instgen::add(temp_rhs_reg, Reg::ID::sp, offset);
+                    Instgen::add_d(temp_rhs_reg,Reg::ID::sp,offset);
+                    LOG_DEBUG<<stack_growth_since_entry<<" "<<sp_offset.at(ptr);
+                    Instgen::ld_w(r, temp_rhs_reg, stack_growth_since_entry + sp_offset.at(ptr));
+                    // Instgen::ldr(r, temp_rhs_reg, stack_growth_since_entry + sp_offset.at(ptr));
                 } else {
                     ConstantInt *offset = dynamic_cast<ConstantInt *>(op2);
-                    Instgen::ldr(r, Reg::ID::sp, stack_growth_since_entry + sp_offset.at(ptr) + offset->get_value());
+                    LOG_DEBUG<<stack_growth_since_entry<<" "<<sp_offset.at(ptr)<<" "<<offset->get_value();
+                    Instgen::ld_w(r, Reg::ID::sp, stack_growth_since_entry + sp_offset.at(ptr) + offset->get_value());
+                    // Instgen::ldr(r, Reg::ID::sp, stack_growth_since_entry + sp_offset.at(ptr) + offset->get_value());
                 }
             } else {
-                Instgen::ldr(r, Reg::ID::sp, sp_offset.at(ptr) + stack_growth_since_entry);
+                Instgen::ld_w(r,Reg::ID::sp,sp_offset.at(ptr)+stack_growth_since_entry);
+                // Instgen::ldr(r, Reg::ID::sp, sp_offset.at(ptr) + stack_growth_since_entry);
             }
         }
     } else {
+        // TODO 2023 HJ
         // float, not sp
         if (reg_mapping.count(ptr)) {
             Reg p = get(ptr);
@@ -1327,18 +1362,19 @@ void Codegen::load(Value *val, Value *ptr, LoadInst *load) {
                 assert(isa<Constant>(op2));
                 // constant offset, add with sp if it's alloca
                 ConstantInt *offset = dynamic_cast<ConstantInt *>(op2);
-                Instgen::vldr(r, p, offset->get_value());
+                Instgen::fld_s(r, p, offset->get_value());
             } else {
-                Instgen::vldr(r, p);
+                Instgen::fld_s(r, p);
             }
         } else {
             assert(isa<AllocaInst>(ptr));
             if (load->get_num_operand() > 1) {
                 auto op2 = load->get_operand(1).get();
                 ConstantInt *offset = dynamic_cast<ConstantInt *>(op2);
-                Instgen::vldr(r, Reg::ID::sp, sp_offset.at(ptr) + stack_growth_since_entry + offset->get_value());
+            
+                Instgen::fld_s(r, Reg::ID::sp, sp_offset.at(ptr) + stack_growth_since_entry + offset->get_value());
             } else {
-                Instgen::vldr(r, Reg::ID::sp, sp_offset.at(ptr) + stack_growth_since_entry);
+                Instgen::fld_s(r, Reg::ID::sp, sp_offset.at(ptr) + stack_growth_since_entry);
             }
         }
     }
@@ -1363,7 +1399,7 @@ std::vector<std::pair<int, int>> topo_sort(std::set<int, std::greater<int>> &nod
     std::set<int> temp_pool;
     switch (temp_reg_type) {
         case move_t::ireg:
-            temp_pool.insert({10, 11, 12});
+            temp_pool.insert({22, 23, 24, 25, 26, 27});
             break;
         case move_t::freg:
             temp_pool.insert({30, 31});
@@ -1433,7 +1469,7 @@ std::vector<std::pair<int, int>> topo_sort(std::set<int, std::greater<int>> &nod
     std::copy(sorted.begin(), sorted.end(), osi);
     LOG_DEBUG << os.str();
     assert(nret.size() == set_ret.size());
-    // for (auto [to, from] : nret)
-    //     std::cout << "edge: " << from << " -> " << to << "\n";
+    for (auto [from, to] : nret)
+        LOG_DEBUG << from << " -> " << to;
     return nret;
 }

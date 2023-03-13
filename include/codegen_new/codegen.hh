@@ -33,7 +33,7 @@ class Codegen {
     std::map<Instruction *, std::set<Reg>> call_saves;
     std::ofstream &output;
     std::map<GlobalVariable *, int> GOT;
-    const std::string global_vars_label = ".global_vars";
+    // const std::string global_vars_label = ".global_vars";
 
     size_t pos{0};                                       // tracking the index of the current instruction (order of dfs)
     std::map<Reg, RegAlloc::interval_ssa> caller_saved;  // currently in used caller-saved registers
@@ -52,8 +52,10 @@ class Codegen {
     void gen_call(CallInst *);
     void gen_ret(ReturnInst *);
     void gen_br(BasicBlock *, BranchInst *);
+    
     void gen_switch(BasicBlock*,SwitchInst *);
     void gen_select(SelectInst* sel);
+    
     void gen_function_call(std::string func_name,
                            std::vector<Value *> all_value,
                            Instruction *dest_inst,
@@ -79,7 +81,7 @@ class Codegen {
         }
         if (not sp_offset.count(val))
             LOG_WARNING << "lifetime hole for value " << val->get_name() << " at pos " << pos << "\n";
-        // exit(120);
+
         return Reg();
     }
     void get_reg_and_move(Reg &, Value *);

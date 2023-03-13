@@ -84,9 +84,11 @@ class TransformSelect : public Pass {
                     bb->delete_instr(inst_after);
 
                     if(inst_after.get()->is_store()){
-                        StoreInst::create_store(inst_alloca,(inst_after.get()->get_operand(1).get())->shared_from_this(),insert_bb_end.get());
+                        auto inst_load = LoadInst::create_load(Type::get_int32_type(module),inst_alloca,insert_bb_end.get());
+                        StoreInst::create_store(inst_load,(inst_after.get()->get_operand(1).get())->shared_from_this(),insert_bb_end.get());
                     }else if(inst_after.get()->is_cmp()){
-                        inst_temp_cmp = CmpInst::create_cmp(static_cast<CmpInst*>(inst_after.get())->get_cmp_op(),(inst_after.get()->get_operand(0).get())->shared_from_this(),inst_alloca,insert_bb_end.get());
+                        auto inst_load = LoadInst::create_load(Type::get_int32_type(module),inst_alloca,insert_bb_end.get());
+                        inst_temp_cmp = CmpInst::create_cmp(static_cast<CmpInst*>(inst_after.get())->get_cmp_op(),(inst_after.get()->get_operand(0).get())->shared_from_this(),inst_load,insert_bb_end.get());
                         cmp_before = true;
                     }else if(inst_after.get()->is_br()){
                         //应该还判断一下条件
