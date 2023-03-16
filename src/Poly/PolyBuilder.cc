@@ -135,6 +135,7 @@ void PolyBuilder::visit(ASTFuncDef &node) {
     // LOG_DEBUG<<label_before_loop_pre->print();   
     auto insert_bb = BasicBlock::create(module, "temp_insertion_bb", main_func.get());  
     auto label_br = label_before_loop_pre->get_terminator_itr();
+    LOG_DEBUG<<label_before_loop_pre->print();
     //删除原来的跳转指令
     label_before_loop_pre->delete_instr(label_br);
     //生成新的跳转指令

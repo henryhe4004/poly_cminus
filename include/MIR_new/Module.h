@@ -34,6 +34,7 @@ class Module {
     IntegerType *get_int32_type();
     IntegerType *get_int64_type();
     PointerType *get_int32_ptr_type();
+    PointerType *get_int64_ptr_type();
     FloatType *get_float_type();
     PointerType *get_float_ptr_type();
 

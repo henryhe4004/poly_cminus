@@ -73,15 +73,17 @@ class Codegen {
     Reg get(Value *val, bool output = false) {
         auto p = pos + (output ? 1 : 0);
         auto intervals = reg_mapping.at(val);
+        // LOG_DEBUG<<intervals;
         // FIXME: really slow lookup !!!~~~
         // but i guess we won't change it in the near future ()
         for (auto &interval : intervals) {
-            if (interval.cover(p))
+            if (interval.cover(p)){
+                LOG_DEBUG<<"interval";
                 return interval.reg;
+            }
         }
         if (not sp_offset.count(val))
             LOG_WARNING << "lifetime hole for value " << val->get_name() << " at pos " << pos << "\n";
-
         return Reg();
     }
     void get_reg_and_move(Reg &, Value *);

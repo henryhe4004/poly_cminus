@@ -38,6 +38,8 @@ Type *VOID_T;
 Type *INT1_T;
 Type *INT32_T;
 Type *INT32PTR_T;
+//64位系统
+Type *INT64PTR_T;
 Type *FLOAT_T;
 Type *FLOATPTR_T;
 
@@ -72,6 +74,7 @@ void SYSYCBuilder::visit(ASTCompUnit &node) {
     VOID_T = Type::get_void_type(module.get());
     INT1_T = Type::get_int1_type(module.get());
     INT32_T = Type::get_int32_type(module.get());
+    INT64PTR_T = Type::get_int64_ptr_type(module.get());
     INT32PTR_T = Type::get_int32_ptr_type(module.get());
     FLOAT_T = Type::get_float_type(module.get());
     FLOATPTR_T = Type::get_float_ptr_type(module.get());

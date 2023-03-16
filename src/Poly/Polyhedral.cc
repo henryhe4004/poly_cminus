@@ -266,8 +266,7 @@ void Polyhedral::run() {
             yyparse();
             AST ast(&syntax_tree);
             auto astRoot = ast.get_root();
-            LOG_DEBUG<<"AST：";
-        
+            // LOG_DEBUG<<"AST：";
             ir_inserter.set_insert_point(l->get_exit());
             ir_inserter.add_loop_exit_block(l->get_exit().get());
             ir_inserter.add_loop_before_block(l->get_preheader()->get_pre_basic_blocks_not_ref().back());

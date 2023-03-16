@@ -523,7 +523,10 @@ void Codegen::gen_select(SelectInst *sel) {
         //maskeqz必须为寄存器 得判断是否为立即数
         Reg lhs_reg = temp_lhs_reg;
         Reg rhs_reg = temp_rhs_reg;
-        auto cond_reg = get(test_bit);
+        //cond_reg
+        LOG_DEBUG<<test_bit->print();
+        auto cond_reg = temp_rhs_reg;
+        LOG_DEBUG<<cond_reg.id;
         auto lhs_const = dynamic_cast<ConstantInt *>(lhs);
         auto rhs_const = dynamic_cast<ConstantInt *>(rhs);
         if (not lhs_const)
@@ -533,9 +536,10 @@ void Codegen::gen_select(SelectInst *sel) {
         move(lhs_reg, lhs);
         move(rhs_reg, rhs);
        
-        //maskeqz是和0判断 所以相同及不满足条件取右值
-        Instgen::maskeqz(target_reg,rhs_reg,cond_reg);
-        Instgen::masknez(target_reg,lhs_reg,cond_reg);
+        //maskeqz是和0判断 需要不为0才能选前者 cond_reg ==0 则是前者大于后者 取前者
+        Instgen::maskeqz(temp_lhs_reg,lhs_reg,cond_reg);
+        Instgen::masknez(target_reg,rhs_reg,cond_reg);
+        Instgen::or_(target_reg,target_reg,temp_lhs_reg);
     } else
         LOG_ERROR << "no reg";
 }
@@ -561,7 +565,7 @@ void Codegen::gen_cmp(CmpInst *inst) {
     // if (reg_mapping.count(inst)) {
     // LOG_DEBUG << "must save this compare result";
     Reg target_Reg = temp_rhs_reg;
-
+    LOG_DEBUG<< target_Reg.id;
     // <    slt l,r     1 represents l < r
     // >    slt r,l     1 represents l > r
     // <=   slt r,l     0 represents l <= r

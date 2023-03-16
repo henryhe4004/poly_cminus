@@ -33,6 +33,8 @@ ArrayType *Type::get_array_type(Type *contained, unsigned num_elements) {
 
 PointerType *Type::get_int32_ptr_type(Module *m) { return m->get_int32_ptr_type(); }
 
+PointerType *Type::get_int64_ptr_type(Module *m){ return m->get_int64_ptr_type(); }
+
 FloatType *Type::get_float_type(Module *m) { return m->get_float_type(); }
 
 PointerType *Type::get_float_ptr_type(Module *m) { return m->get_float_ptr_type(); }

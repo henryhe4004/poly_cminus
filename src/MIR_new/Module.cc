@@ -90,6 +90,8 @@ FunctionType *Module::get_function_type(Type *retty, std::vector<Type *> &args) 
 
 PointerType *Module::get_int32_ptr_type() { return get_pointer_type(int32_ty_.get()); }
 
+PointerType *Module::get_int64_ptr_type() { return get_pointer_type(int64_ty_.get()); }
+
 FloatType *Module::get_float_type() { return float32_ty_.get(); }
 
 PointerType *Module::get_float_ptr_type() { return get_pointer_type(float32_ty_.get()); }

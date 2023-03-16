@@ -26,7 +26,7 @@ class PolyCFG{
     void add_loop_before_block(BasicBlock* bb) { this->loop_before = bb; }
     void add_loop_exit_block(BasicBlock* bb) { this->loop_exit=bb; }
     void transform_cfg(){
-        LOG_DEBUG<<"tansform_cfg";
+        // LOG_DEBUG<<"tansform_cfg";
         auto main_func = *std::find_if(module->get_functions().begin(), module->get_functions().end(), [](auto f) { return f->get_name() == "main"; });
         auto cur_func = main_func.get();
         auto label_before_loop = this->get_loop_before_blocks(); //获取第一个loop_before_loop的前继
@@ -50,7 +50,7 @@ class PolyCFG{
                 }
                 delete_BB_stack.push(now_BB_pre);
             }
-            LOG_DEBUG<<now_BB->print();
+            // LOG_DEBUG<<now_BB->print();
             cur_func->remove_not_bb(std::dynamic_pointer_cast<BasicBlock>(now_BB->shared_from_this()));
                 // delete_BB_stack_new.push(now_BB);
                 // cur_func->remove_unreachable_basic_block(std::dynamic_pointer_cast<BasicBlock>(now_BB->shared_from_this()));

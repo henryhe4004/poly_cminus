@@ -60,6 +60,8 @@ class Type {
 
     static PointerType *get_int32_ptr_type(Module *m);
 
+    static PointerType *get_int64_ptr_type(Module *m);
+
     static FloatType *get_float_type(Module *m);
 
     static PointerType *get_float_ptr_type(Module *m);
