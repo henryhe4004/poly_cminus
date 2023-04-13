@@ -476,17 +476,29 @@ int test_one_schedule(isl_ctx *ctx,
 isl::schedule_node tile_node(isl::schedule_node node, int default_tile_size) {
     // we've run checks before, just do the cast
     auto band = node.as<isl::schedule_node_band>();
+    //返回band的局部schedule的space   ps:无论何时从头开始创建新的集合、关系或类似对象，都需要使用isl空间指定其所在的空间
     auto space = manage(isl_schedule_node_band_get_space(node.get()));
+    //多重表达式表示零个或多个基本表达式的序列，所有多重表达式都定义在同一个domain上
+    //可以使用以下函数为每个输出（或集合）维度创建值为零的多重表达式。
     auto sizes = isl::multi_val::zero(space);
+    //重新定义space
     for (unsigned i = 0; i < sizes.size(); ++i) {
         sizes = sizes.set_at(i, default_tile_size);
     }
 
     auto TileLoopMarkerStr = "Tiles";
+    // 标识符用于标识单个维度和维度元组。
+
+     //它们由一个可选名称和一个可选用户指针组成。但是，名称和用户指针不能同时为NULL。具有相同名称但不同指针值的标识符被认为是不同的。类似地，具有不同名称但具有相同指针值的标识符也被认为是不同的。使用相同的对象来表示相等的标识符。因此，可以使用==运算符来测试标识符对的相等性。可以使用以下功能构建、复制、释放、检查和打印标识符。 
+     //根据id分配ctx
     auto TileLoopMarker = manage(isl_id_alloc(node.ctx().get(), TileLoopMarkerStr, nullptr));
+    // 添加mark节点 mark节点是在原来节点与父节点之间加入
     node = node.insert_mark(TileLoopMarker);
+    //
     node = node.child(0);
+
     node = node.as<isl::schedule_node_band>().tile(sizes);
+    //将该节点移动到0节点 0节点应该就是自身？
     node = node.child(0);
     auto PointLoopMarkerStr = "Points";
     auto PointLoopMarker = manage(isl_id_alloc(node.ctx().get(), PointLoopMarkerStr, nullptr));
@@ -634,7 +646,7 @@ isl::schedule_node prevect_band(isl::schedule_node node, unsigned dim_to_vectori
 isl::schedule_node prevect(isl::schedule_node n) {
     auto space = manage(isl_schedule_node_band_get_space(n.get()));
     auto sizes = isl::multi_val::zero(space);
-
+    LOG_DEBUG<<"sizes: "<<sizes.size();
     for (int i = sizes.size() - 1; i >= 0; i--) {
         LOG_DEBUG << "index: " << i;
         if (n.as<isl::schedule_node_band>().member_get_coincident(i)) {
@@ -668,7 +680,7 @@ isl::schedule_node optimize_band_node(isl::schedule_node n) {
     isl_printer_free(p);
 
     std::cout << "run optimize_band_node\n";
-    n = tile_node(n, 32);
+    n = tile_node(n, 64);
 
     p = isl_printer_to_str(n.ctx().get());
     p = isl_printer_print_schedule_node(p, n.get());

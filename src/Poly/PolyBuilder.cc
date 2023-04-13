@@ -25,6 +25,8 @@ static std::shared_ptr<Value> ret_val;
 static std::shared_ptr<BasicBlock> continue_bb, break_bb, true_block, false_block, ret_bb;
 /// \brief basic block counter to avoid name conflicts
 static size_t counter{0};
+/// \brief temp_bb to avoid name conflicts
+static size_t temp_bb{0};
 static Function *cur_func;
 // Type *cur_arr_inner_type;
 static Type *cur_arr_inner_type;
@@ -133,7 +135,7 @@ void PolyBuilder::visit(ASTFuncDef &node) {
     //     // cur_func->remove_unreachable_basic_block(std::dynamic_pointer_cast<BasicBlock>(now_BB->shared_from_this()));
     // }
     // LOG_DEBUG<<label_before_loop_pre->print();   
-    auto insert_bb = BasicBlock::create(module, "temp_insertion_bb", main_func.get());  
+    auto insert_bb = BasicBlock::create(module, "temp_insertion_bb"+ std::to_string(temp_bb++), main_func.get());  
     auto label_br = label_before_loop_pre->get_terminator_itr();
     LOG_DEBUG<<label_before_loop_pre->print();
     //删除原来的跳转指令

@@ -251,6 +251,7 @@ void Polyhedral::run() {
             isl_printer_free(p);
 
             auto root = sched.get_root();
+            //允许对调度树特定节点的子节点进行深度优先的后序遍历。
             root = root.map_descendant_bottom_up(optimize_band_node);  // polly
             sched = root.schedule();
 
