@@ -24,8 +24,6 @@
 #include "MulWeaken.hh"
 #include "Pass.hh"
 #include "Peephole.hh"
-#include "PolyTest.hh"
-#include "Polyhedral.hh"
 #include "RemoveUselessBr.hh"
 #include "SCCP.hh"
 #include "SimplifyCFG.hh"

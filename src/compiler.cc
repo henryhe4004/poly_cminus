@@ -1,10 +1,11 @@
 #include "AST.hpp"
 #include "passes.hh"
-#include "SYSYCBuilder.h"
-#include "SyntaxTree.hh"
+#include "cminusf_builder.hpp"
+// #include "SYSYCBuilder.h"
+#include "syntax_tree.hh"
 #include "codegen.hh"
 #include "logging.hpp"
-#include "parser.hh"
+// #include "parser.hh"
 #include "utils.hh"
 
 #include <boost/version.hpp>
@@ -17,7 +18,8 @@ using std::endl;
 using std::string;
 using std::literals::string_literals::operator""s;
 using std::literals::string_view_literals::operator""sv;
-SyntaxTree syntax_tree;
+extern syntax_tree *parse(const char*);
+// syntax_tree syntax_tree;
 std::string help_text;
 void print_usage() {
     // TODO
@@ -183,19 +185,31 @@ int main(int argc, char *argv[]) {
         else
             target_file_path = "a.out";
     }
-    parse_file(input_file_path);
-    // syntax_tree.print();
+    
+    auto s = parse(input_file_path.c_str());
     LOG_INFO << "generate syntax tree successfully";
+    print_syntax_tree(stdout, s);
+    auto a = AST(s);
+    //print ast
+    auto printer = ASTPrinter();
+    a.run_visitor(printer);
+    // IR build
+    CminusfBuilder builder;
+    a.run_visitor(builder);
 
-    AST ast(&syntax_tree);
-    auto astRoot = ast.get_root();
-    LOG_INFO << "generate AST successfully";
+    // parse_file(input_file_path);
+    // syntax_tree.print();
+    
 
-    // ASTPrinter printer;
-    // printer.visit(*astRoot);
+    // AST ast(&syntax_tree);
+    // auto astRoot = ast.get_root();
+    // LOG_INFO << "generate AST successfully";
 
-    SYSYCBuilder builder;
-    builder.visit(*astRoot);
+    // // ASTPrinter printer;
+    // // printer.visit(*astRoot);
+
+    // SYSYCBuilder builder;
+    // builder.visit(*astRoot);
 
     auto module = builder.getModule();
     module->set_ptr_size((silent and not emit_llvm) ? 4 : sizeof(char *));
@@ -209,8 +223,8 @@ int main(int argc, char *argv[]) {
     config.ir_check = ir_check;
     add_pass_if(RemoveUselessBr, true);
     add_pass_if(Mem2Reg, mem2reg);
-    add_pass_if(PolyTest, poly_test);
-    add_pass_if(Polyhedral, poly);
+    // add_pass_if(PolyTest, poly_test);
+    // add_pass_if(Polyhedral, poly);
     
     add_pass_if(AdHocOptimization, adhoc);
     add_pass_if(DeadGlobalElimination, dead_global);

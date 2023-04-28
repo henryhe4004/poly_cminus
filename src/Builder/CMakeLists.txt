@@ -1,6 +1,6 @@
 add_library(
     IRBuilder_new
-    builder.cc
+    cminusf_builder.cc
 )
 
 target_include_directories(

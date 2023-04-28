@@ -178,6 +178,25 @@ void Instgen::lsr(Reg dest, Reg r1, Reg r2, std::string_view cond) {
     (*output) << "\tlsr" << cond << "\t" << dest << ", " << r1 << ", " << r2 << "\n";
 }
 
+void Instgen::shift(Reg r1, Reg r2) {
+    assert (r2.shift_n>0);
+    assert (r1!=Reg::ID::zero);
+    switch (r2.op) {
+        case shift_type_t::LSL:
+            (*output) << "\tslli.d\t" << r1 << ", " << r2 << ", " <<r2.shift_n << "\n";
+            break;
+        case shift_type_t::LSR:
+            (*output) << "\tsrli.d\t" << r1 << ", " << r2 << ", " <<r2.shift_n << "\n";
+            break;
+        case shift_type_t::ASR:
+            (*output) << "\tsrai.d\t" << r1 << ", " << r2 << ", " <<r2.shift_n << "\n";
+            break;
+        default:
+            LOG_ERROR << "shift type error";
+            exit(-1);
+    }
+}
+
 // void Instgen::asr(Reg dest, Reg r1, Reg r2, std::string_view cond) {
 //     assert(dest.valid() and not dest.is_float);
 //     assert(r1.valid() and not r1.is_float);
@@ -843,4 +862,12 @@ void Instgen::srai_d(Reg dest, Reg r1, int imm) {
     assert(dest.valid() and not dest.is_float);
     assert(r1.valid() and not r1.is_float);
     (*output) << "\tsrai.w\t" << dest << ", " << r1 << ", " << imm<< "\n";
+}
+
+// void Instgen::bceqz(Reg dest,int imm){
+//      (*output) << "\tbceqz\t" << dest << ", " << imm<< "\n";
+// }
+
+void Instgen::li_w(Reg dest,int imm){
+    (*output) << "\tli.w\t" << dest << ", " << imm<< "\n";
 }

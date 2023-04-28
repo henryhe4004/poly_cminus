@@ -193,6 +193,8 @@ void Codegen::gen_function(Function *f) {
     //生成basic block
     for (auto bb : f->get_basic_blocks())
         gen_bb(bb.get());
+    auto return_label = "."+ f->get_name() + "_return";
+    output << return_label << ":\n";
     epilogue(f); //恢复原来的fp与sp
     output << "\n";
 }
@@ -279,6 +281,7 @@ void Codegen::epilogue(Function *f) {
     // 	ld.d	$r22,$r3,8
     // addi.d	$r3,$r3,16
     // jr	$r1
+
     Instgen::ld_d(Reg::ID::ra, Reg::ID::sp, 8);
 
     if (size < 2048)
@@ -306,7 +309,7 @@ void Codegen::gen_bb(BasicBlock *bb) {
             continue;
         }
         output << "\t# " << pos << " " << inst->print() << "\n";
-        LOG_DEBUG<<inst->print();
+        LOG_DEBUG<<"\t# " << pos << " " << inst->print() << "\n";
         //具体每条指令的asm生成
         switch (inst->get_instr_type()) {
             case Instruction::alloca:  // already allocated
@@ -669,10 +672,13 @@ void gen_fcmp_move(FCmpInst *fcmp_inst, Reg target_Reg) {
     // !=   sub l,r     1 represents l != r
     switch (fcmp_inst->get_cmp_op()) {
         case CmpOp::LT:
-            Instgen::ite("mi");
-            
-            Instgen::movmi(target_Reg, 1);
-            Instgen::movpl(target_Reg, 0);
+            // Instgen::ite("mi");
+            Instgen::li_w(target_Reg,0);
+            Instgen::bceqz("$fcc0","0x8");
+            Instgen::li_w(target_Reg,1);
+            // Instgen::move(target_Reg,)
+            // Instgen::movmi(target_Reg, 1);
+            // Instgen::movpl(target_Reg, 0);
             break;
         case CmpOp::GT:
             Instgen::ite("gt");
@@ -922,6 +928,7 @@ void Codegen::gen_ret(ReturnInst *inst) {
     auto is_float = value->get_type()->is_float_type();
     // if (not is_float)
     move(Reg::ID::ret, value);
+    Instgen::b("." +inst->get_parent()->get_parent()->get_name() + "_return");
     // else
     //     move(Reg(0, true), value);
 
@@ -999,7 +1006,7 @@ void Codegen::gen_br(BasicBlock *bb, BranchInst *inst) {
             resolve_moves(bb, target_then, cond._to_string());
 
             Instgen::b(label_then);
-            output << "\t" << inner_label << ":\n";
+            output <<  inner_label << ":\n";
         } else {
             auto fcmp_inst = dynamic_cast<FCmpInst *>(cond_inst);
 
@@ -1149,9 +1156,17 @@ void Codegen::parallel_mov(std::vector<std::pair<armval, armval>> &moves_input, 
             is_int ? [](Reg a, Reg b, size_t c, std::string_view d) -> void { Instgen::ld_d(a, b, c, d); }
                    : [](Reg a, Reg b, size_t c, std::string_view d) -> void { Instgen::fld_s(a, b, c, d); };
         for (auto &b : moves) {
+            //tie可以解包 
             std::tie(to1, from) = b;
+            //check vaiant v holds the alternative T
             if (std::holds_alternative<Reg>(to1)) {
                 to = std::get<Reg>(to1);
+                //visit 它的作用是将一个包含多种不同类型的可访问对象（如 std::variant 或 std::any 等）的容器中的对象传递给多个可调用对象中的一个，具体调用哪个可调用对象由该对象所包含的对象的实际类型决定。
+                //[&]函数局部作用域里的变量都按引用捕获
+                //将visit和[&]可以起到访问对应参数的作用
+                //overloaded 类的基类即参数包 Ts 内所有的参数类型的函数调用操作符均被 overloaded 类引入了自己的作用域。
+                //根据 overloaded 类的定义，overloaded对应对象将继承这3个lambda（函数对象）的 operator() ，也就是说这3个lambda的 operator() 即函数体在 s 对象内部形成重载关系。
+                //基本上就是判断类型 执行对应的operator
                 std::visit(overloaded{[&](Reg from) {
                                           nodes.insert({from.id, to.id});
                                           edges.insert({from.id, to.id});
@@ -1162,6 +1177,7 @@ void Codegen::parallel_mov(std::vector<std::pair<armval, armval>> &moves_input, 
                                       [](size_t _) { return; }},
                            from);
             } else {
+                LOG_DEBUG<<"size_t: sp";
                 size_t offset = is_int ? std::get<int_variant_index>(to1) : std::get<float_variant_index>(to1);
                 // don't need to use vldr/vstr if float?
                 std::visit(
@@ -1250,26 +1266,33 @@ void Codegen::store(Value *val, Value *ptr, StoreInst *store) {
                 Instgen::st_w(r, p);
             }
         } else {
-            LOG_DEBUG<<"ptr not in regmapping ";
-            assert(isa<AllocaInst>(ptr));
-            if (store->get_num_operand() > 2) {
-                auto op2 = store->get_operand(2).get();
-                if (reg_mapping.count(op2)) {
-                    Reg offset = get(op2);
-                    offset.shift_n = store->get_op2_shift_bits();
-                    offset.op = store->get_op2_shift_type();
-                    // Instgen::add(temp_rhs_reg, Reg::ID::sp, offset);
-                    Instgen::add_d(temp_rhs_reg,Reg::ID::sp,offset);
-                    Instgen::st_w(r,temp_rhs_reg,stack_growth_since_entry+sp_offset.at(ptr));
-                    // Instgen::str(r, temp_rhs_reg, stack_growth_since_entry + sp_offset.at(ptr));
+            if (isa<AllocaInst>(ptr))  // ptr is allocainst
+            {
+                if (store->get_num_operand() > 2) {//有offset
+                    auto op2 = store->get_operand(2).get();
+                    if (reg_mapping.count(op2)) {
+                        Reg offset = get(op2);
+                        offset.shift_n = store->get_op2_shift_bits();
+                        offset.op = store->get_op2_shift_type();
+                        if (offset.shift_n>0)
+                        {
+                            Instgen::shift(temp_rhs_reg, offset);
+                            offset = temp_rhs_reg;
+                        }
+                        Instgen::add_d(temp_rhs_reg, Reg::ID::sp, offset);
+                        Instgen::st_w(r, temp_rhs_reg, stack_growth_since_entry + sp_offset.at(ptr));
+                    } else {
+                        ConstantInt *offset = dynamic_cast<ConstantInt *>(store->get_operand(2).get());
+                        Instgen::st_w(
+                            r, Reg::ID::sp, stack_growth_since_entry + sp_offset.at(ptr) + offset->get_value());
+                    }
                 } else {
-                    ConstantInt *offset = dynamic_cast<ConstantInt *>(store->get_operand(2).get());
-                    Instgen::st_w(r,Reg::ID::sp,stack_growth_since_entry+sp_offset.at(ptr)+offset->get_value());
-                    // Instgen::str(r, Reg::ID::sp, stack_growth_since_entry + sp_offset.at(ptr) + offset->get_value());
+                    Instgen::st_w(r, Reg::ID::sp, sp_offset.at(ptr) + stack_growth_since_entry);
                 }
             } else {
-                Instgen::st_w(r,Reg::ID::sp,sp_offset.at(ptr) + stack_growth_since_entry);
-                // Instgen::str(r, Reg::ID::sp, sp_offset.at(ptr) + stack_growth_since_entry);
+                assert(isa<GlobalVariable>(ptr));
+                move(temp_rhs_reg, ptr);
+                Instgen::st_w(r, temp_rhs_reg);
             }
         }
     } else {
@@ -1329,29 +1352,33 @@ void Codegen::load(Value *val, Value *ptr, LoadInst *load) {
                 Instgen::ld_w(r, p);
             }
         } else {  // alloca
-            assert(isa<AllocaInst>(ptr));
-            // alloca + offset
-            LOG_DEBUG<<load->get_num_operand();
-            if (load->get_num_operand() > 1) {
-                auto op2 = load->get_operand(1).get();
-                if (reg_mapping.count(op2)) {
-                    Reg offset = get(op2);
-                    offset.shift_n = load->get_op2_shift_bits();
-                    offset.op = load->get_op2_shift_type();
-                    // Instgen::add(temp_rhs_reg, Reg::ID::sp, offset);
-                    Instgen::add_d(temp_rhs_reg,Reg::ID::sp,offset);
-                    LOG_DEBUG<<stack_growth_since_entry<<" "<<sp_offset.at(ptr);
-                    Instgen::ld_w(r, temp_rhs_reg, stack_growth_since_entry + sp_offset.at(ptr));
-                    // Instgen::ldr(r, temp_rhs_reg, stack_growth_since_entry + sp_offset.at(ptr));
+            if (isa<AllocaInst>(ptr)) {
+                // alloca + offset
+                if (load->get_num_operand() > 1) {
+                    auto op2 = load->get_operand(1).get();
+                    if (reg_mapping.count(op2)) {
+                        Reg offset = get(op2);
+                        offset.shift_n = load->get_op2_shift_bits();
+                        offset.op = load->get_op2_shift_type();
+                        if (offset.shift_n>0)
+                        {
+                            Instgen::shift(temp_rhs_reg, offset);
+                            offset = temp_rhs_reg;
+                        }
+                        Instgen::add_d(temp_rhs_reg, Reg::ID::sp, offset);
+                        Instgen::ld_w(r, temp_rhs_reg, stack_growth_since_entry + sp_offset.at(ptr));
+                    } else {
+                        ConstantInt *offset = dynamic_cast<ConstantInt *>(op2);
+                        Instgen::ld_w(
+                            r, Reg::ID::sp, stack_growth_since_entry + sp_offset.at(ptr) + offset->get_value());
+                    }
                 } else {
-                    ConstantInt *offset = dynamic_cast<ConstantInt *>(op2);
-                    LOG_DEBUG<<stack_growth_since_entry<<" "<<sp_offset.at(ptr)<<" "<<offset->get_value();
-                    Instgen::ld_w(r, Reg::ID::sp, stack_growth_since_entry + sp_offset.at(ptr) + offset->get_value());
-                    // Instgen::ldr(r, Reg::ID::sp, stack_growth_since_entry + sp_offset.at(ptr) + offset->get_value());
+                    Instgen::ld_w(r, Reg::ID::sp, sp_offset.at(ptr) + stack_growth_since_entry);
                 }
             } else {
-                Instgen::ld_w(r,Reg::ID::sp,sp_offset.at(ptr)+stack_growth_since_entry);
-                // Instgen::ldr(r, Reg::ID::sp, sp_offset.at(ptr) + stack_growth_since_entry);
+                assert(isa<GlobalVariable>(ptr));  // ptr is global variable
+                move(temp_rhs_reg, ptr);
+                Instgen::ld_w(r, temp_rhs_reg);
             }
         }
     } else {

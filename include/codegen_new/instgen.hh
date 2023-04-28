@@ -67,7 +67,7 @@ class Instgen {
     static void bx(Reg);
     static void b(std::string_view sv);
     static void ite(std::string_view sv);
-
+    static void shift(Reg r1, Reg r2);
     static void beq(std::string_view sv);
     static void bne(std::string_view sv);
     static void bgt(std::string_view sv);
@@ -200,7 +200,8 @@ class Instgen {
     static void slli_d(Reg,Reg,int);
     static void srai_w(Reg,Reg,int);
     static void srai_d(Reg,Reg,int);
-
+    static void bceqz(Reg,int);
+    static void li_w(Reg,int);
   private:
     static std::ofstream *output;
     // std::ofstream& output;

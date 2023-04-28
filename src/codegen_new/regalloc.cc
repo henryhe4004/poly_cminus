@@ -158,6 +158,7 @@ void RegAlloc::build_intervals() {
             ssa_intervals[a].add_use(0);
             if (not is_float) {
                 if (arg_idx <= int_arg_max_save_index)
+                    LOG_DEBUG<<"alloca reg"<<"   "<<arg_idx;
                     ssa_intervals[a].reg = Reg(arg_idx);
             } else {
                 if (arg_idx_float <= fp_arg_max_save_index)
@@ -459,15 +460,16 @@ void RegAlloc::resolve() {
         for (auto suc : pre->get_succ_basic_blocks()) {
             auto livein = liveIn[suc];
             //因为把CFG图dfs成了一个序列 本来是挨着执行的 
-            auto begin = bb_range[suc].first;  //bb_range记录bb第一条指令到最终指令的interval  begin为后继第一条指令
-            auto pred_end = bb_range[pre.get()].second - 1;  // pred_end is not inclusive, need to minus one? pred_end为前驱最后一条指令的开区间
+            auto begin = bb_range[suc].first;  //bb_range记录bb第一条指令到最终指令的interval的左区间端点
+            auto pred_end = bb_range[pre.get()].second - 1;  // pred_end is not inclusive, need to minus one? 
             std::set<Value *> phis{};
-            for (auto val : suc->get_instructions())
+            for (auto val : suc->get_instructions()){
                 if (auto phi = dynamic_cast<PhiInst *>(val.get())) {
                     if (not phi->get_use_list().empty())
                         phis.insert(phi);
                 } else
                     break;
+            }
             //这些phi都是活跃的
             livein.merge(phis);
             LOG_DEBUG << "pred(" << pre->get_name() << ") end (minus one): " << pred_end << ", succ(" << suc->get_name()

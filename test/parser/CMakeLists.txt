@@ -1,2 +1,5 @@
-# add_executable(test_parser parser.cc)
-# target_link_libraries(test_parser syntax)
+include_directories(${PROJECT_BINARY_DIR})
+add_executable(parser parser.c)
+target_link_libraries(parser syntax common)
+add_executable(lexer lexer.c)
+target_link_libraries(lexer syntax common)

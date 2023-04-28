@@ -1,0 +1,7 @@
+add_subdirectory(parser)
+add_subdirectory(Optimize)
+add_subdirectory(MIR_new)
+add_subdirectory(LIR)
+add_subdirectory(common)
+add_subdirectory(codegen_new)
+add_subdirectory(parser)
