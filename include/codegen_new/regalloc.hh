@@ -68,18 +68,19 @@ class RegAlloc {
         /// \returns second half of the split
         interval_ssa split(size_t pos) {
             LOG_DEBUG << "split: " << pos;
-            //第一个大于等于pos的左边界
+            //大于等于pos的第一个使用点
             auto i = uses.lower_bound(pos);
+            //将i到后面所有的使用点全部另存
             std::set<size_t> retuses(i, uses.end());
-            //删除i到uses》end的元素
+            //删除i到end的元素
             uses.erase(i, uses.end());
             S rets;
+            //(0,pos]与原来活跃区间的交集
             S temp = I::right_open(0, pos) & s;
-            //中间[pos,i-1]
+            //拆分的后半块 例如原始活跃区间是(2,30] uses是[8,15,30] 假如从14拆分 那么temp是  (0,14] 与s的并集就是（2,14] rets就是(14,30]
             rets = s - temp;
             s = move(temp);
-
-            LOG_DEBUG << "split " << val->get_name() << ": second half: " << rets << ", first half: " << s;
+            LOG_DEBUG << "split " << val->get_name() << ": second half: " << rets << ", first half: " << s ;
             interval_ssa ret(*this);
             ret.s = move(rets);
             ret.uses = move(retuses);

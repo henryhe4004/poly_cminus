@@ -7,7 +7,7 @@
 #include <boost/hana/functional/fix.hpp>
 #include <map>
 #undef NDEBUG
-const Reg Codegen::temp_lhs_reg(19), Codegen::temp_rhs_reg(20), Codegen::temp_out_reg(21);
+const Reg Codegen::temp_lhs_reg(11), Codegen::temp_rhs_reg(12), Codegen::temp_out_reg(13);
 const Reg Codegen::temp_float_lhs_reg(30, true), Codegen::temp_float_rhs_reg(31, true);
 
 using std::map;
@@ -1013,7 +1013,7 @@ void Codegen::gen_br(BasicBlock *bb, BranchInst *inst) {
             // pos -= 2;
             // gen_fcmp(fcmp_inst); // like gen_cmp, can't call it in here
             // pos += 2;
-
+`   ``  
             resolve_split(pos + 1);
             resolve_moves(bb, target_then, fcmp_inst->get_cmp_op()._to_string());  // ? 位置不同
 
@@ -1062,6 +1062,7 @@ void Codegen::move(Reg r, Value *val, std::string_view cond) {
                 Instgen::reg_mov(r, temp_reg, cond);
             }
         } else {
+            LOG_DEBUG<<"float";
             auto const_fp = dynamic_cast<ConstantFP *>(val);
             // if (not r.is_float)
             //     Instgen::ldr(r, get_label_name_float(const_fp));
@@ -1069,8 +1070,9 @@ void Codegen::move(Reg r, Value *val, std::string_view cond) {
             //     Instgen::fld_s(r, get_label_name_float(const_fp));
 
             auto float_value = const_fp->get_value();
+            LOG_DEBUG<<float_value;
             auto int_value = *(int *)&float_value;
-
+            LOG_DEBUG<<int_value;
             // WARN: 使用 temp_rhs_reg 可能引起问题
             Instgen::mov(temp_rhs_reg, int_value, cond);
             Instgen::reg_mov(r, temp_rhs_reg, cond);
@@ -1088,8 +1090,10 @@ void Codegen::move(Reg r, Value *val, std::string_view cond) {
             auto inst = dynamic_cast<Instruction *>(val);
             auto arg = dynamic_cast<Argument *>(val);
             assert((inst or arg) and "must be an instruction or an argument");
+            LOG_DEBUG<<"codegen:move float not reg";
             if (inst and inst->is_alloca()) {
                 //感觉像相对地址+起始地址
+                LOG_DEBUG<<"alloca";
                 auto size = sp_offset.at(inst) + stack_growth_since_entry;
                 if (encode_arm_immediate(size))
                     Instgen::addi_d(r, Reg::ID::sp, size);
@@ -1114,7 +1118,9 @@ void Codegen::move(Value *to, Value *from, std::string_view cond) {
     move(r, from, cond);
 }
 
-void Codegen::resolve_moves(BasicBlock *frombb, BasicBlock *tobb) { resolve_moves(frombb, tobb, ""); }
+void Codegen::resolve_moves(BasicBlock *frombb, BasicBlock *tobb) { 
+    resolve_moves(frombb, tobb, ""); 
+     }
 
 void Codegen::resolve_moves(BasicBlock *frombb, BasicBlock *tobb, std::string_view cond) {
     parallel_mov(move_mapping[{frombb, tobb}], cond);
@@ -1240,10 +1246,11 @@ void Codegen::store(Value *val, Value *ptr, StoreInst *store) {
     auto is_float = val->get_type()->is_float_type();
     if (not is_float) {
         Reg r = reg_mapping.count(val) and get(val).valid() ? get(val) : temp_lhs_reg;
-
+        LOG_DEBUG<<"alloca reg："<<r.get_name();
         move(r, val);
         if (reg_mapping.count(ptr)) {
             Reg p = get(ptr);
+             LOG_DEBUG<<"alloca reg："<<p.get_name();
             move(p, ptr);
 
             if (store->get_num_operand() > 2) {
@@ -1297,9 +1304,11 @@ void Codegen::store(Value *val, Value *ptr, StoreInst *store) {
         }
     } else {
         //2023 TODO HJ
+        LOG_DEBUG<<val->print();
         Reg r = reg_mapping.count(val) and get(val).valid() ? get(val) : temp_float_lhs_reg;
         move(r, val);
         if (reg_mapping.count(ptr)) {
+            LOG_DEBUG<<"reg_mapping.connt ptr";
             Reg p = get(ptr);
             move(p, ptr);
             if (store->get_num_operand() > 2) {
@@ -1312,12 +1321,15 @@ void Codegen::store(Value *val, Value *ptr, StoreInst *store) {
                 Instgen::fst_s(r, p);
             }
         } else {
+            LOG_DEBUG<<"reg_mapping not connt ptr";
             assert(isa<AllocaInst>(ptr));
             if (store->get_num_operand() > 2) {
+                LOG_DEBUG<<"operand>2";
                 auto op2 = store->get_operand(2).get();
                 ConstantInt *offset = dynamic_cast<ConstantInt *>(op2);
                 Instgen::fst_s(r, Reg::ID::sp, sp_offset.at(ptr) + stack_growth_since_entry + offset->get_value());
             } else {
+                LOG_DEBUG<<"operand<=2";
                 Instgen::fst_s(r, Reg::ID::sp, sp_offset.at(ptr) + stack_growth_since_entry);
             }
         }

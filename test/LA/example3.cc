@@ -3,9 +3,10 @@ int add(int a, int b) {
 }
 int main(void) {
     int a;
-    int b;
+     int b;
     int c;
     a = 1;
+   
     b = 2;
     
     c = add(a, b);    

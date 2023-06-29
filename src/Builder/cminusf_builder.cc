@@ -20,7 +20,7 @@ bool require_lvalue = false;
 Function *cur_fun = nullptr;
 // detect scope pre-enter (for elegance only)
 bool pre_enter_scope = false;
-
+size_t counter{0};
 // types
 Type *VOID_T;
 Type *INT1_T;
@@ -187,9 +187,9 @@ void CminusfBuilder::visit(ASTExpressionStmt &node) {
 void CminusfBuilder::visit(ASTSelectionStmt &node) {
     node.expression->accept(*this);
     auto ret_val = tmp_val;
-    auto trueBB = BasicBlock::create(module.get(), "", cur_fun);
+    auto trueBB = BasicBlock::create(module.get(), std::to_string(counter++), cur_fun);
     std::shared_ptr<BasicBlock> falseBB;
-    auto contBB = BasicBlock::create(module.get(), "", cur_fun);
+    auto contBB = BasicBlock::create(module.get(), std::to_string(counter++), cur_fun);
     std::shared_ptr<Value> cond_val;
     if (ret_val->get_type()->is_integer_type())
         cond_val = builder->create_icmp_ne(ret_val, CONST_INT(0));
@@ -199,7 +199,7 @@ void CminusfBuilder::visit(ASTSelectionStmt &node) {
     if (node.else_statement == nullptr) {
         builder->create_cond_br(cond_val, trueBB, contBB);
     } else {
-        falseBB = BasicBlock::create(module.get(), "", cur_fun);
+        falseBB = BasicBlock::create(module.get(), std::to_string(counter++), cur_fun);
         builder->create_cond_br(cond_val, trueBB, falseBB);
     }
     builder->set_insert_point(trueBB);
@@ -221,14 +221,14 @@ void CminusfBuilder::visit(ASTSelectionStmt &node) {
 }
 
 void CminusfBuilder::visit(ASTIterationStmt &node) {
-    auto exprBB = BasicBlock::create(module.get(), "", cur_fun);
+    auto exprBB = BasicBlock::create(module.get(), std::to_string(counter++), cur_fun);
     if (builder->get_insert_block()->get_terminator() == nullptr)
         builder->create_br(exprBB);
     builder->set_insert_point(exprBB);
     node.expression->accept(*this);
     auto ret_val = tmp_val;
-    auto trueBB = BasicBlock::create(module.get(), "", cur_fun);
-    auto contBB = BasicBlock::create(module.get(), "", cur_fun);
+    auto trueBB = BasicBlock::create(module.get(), std::to_string(counter++), cur_fun);
+    auto contBB = BasicBlock::create(module.get(), std::to_string(counter++), cur_fun);
     std::shared_ptr<Value> cond_val;
     if (ret_val->get_type()->is_integer_type())
         cond_val = builder->create_icmp_ne(ret_val, CONST_INT(0));
@@ -283,8 +283,8 @@ void CminusfBuilder::visit(ASTVar &node) {
         node.expression->accept(*this);
         auto val = tmp_val;
         std::shared_ptr<Value> is_neg;
-        auto exceptBB = BasicBlock::create(module.get(), "", cur_fun);
-        auto contBB = BasicBlock::create(module.get(), "", cur_fun);
+        auto exceptBB = BasicBlock::create(module.get(), std::to_string(counter++), cur_fun);
+        auto contBB = BasicBlock::create(module.get(), std::to_string(counter++), cur_fun);
         if (val->get_type()->is_float_type())
             val = builder->create_fptosi(val, INT32_T);
 

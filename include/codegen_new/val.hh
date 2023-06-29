@@ -80,7 +80,7 @@ struct Reg {
             if (12 <= id and id <= 20)
                 return os << "$t" << id - 12;
             if (23 <= id and id <= 31) {
-                // LOG_WARNING << "$s" << id - 23 << " may cause error";
+                LOG_WARNING << "$s" << id - 23 << " may cause error";
                 return os << "$s" << id - 23;
             }
             LOG_ERROR << "invalid register id: " << id;

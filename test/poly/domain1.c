@@ -1,27 +1,15 @@
-int main() {
-    int i, j, k;
-    const int N = 10, M = 10, K = 20;
-    int A[N], B[N], Z[2 * N];
-    int X[N][M], C[N][K], D[K][M];
+int main(void) {
+    int i;
+    int j;
+    int k;
+    int A[20];
+    int B[20];
+    int Z[40];
     i = 0;
-    while (i < N) {
+    while (i < 20) {
         j = 0;
-        while (j < N) {
+        while (j < 20) {
             /* foo:  */ Z[i + j] = Z[i + j] + A[i] * B[j];
-            j = j + 1;
-        }
-        i = i + 1;
-    }
-    i = 0;
-    while (i < N) {
-        j = 0;
-        while (j < M) {
-            /* S: */ X[i][j] = 0.0;
-            k = 0;
-            while (k < K) {
-                /* T: */ X[i][j] = X[i][j] + C[i][k] * D[k][j];
-                k = k + 1;
-            }
             j = j + 1;
         }
         i = i + 1;

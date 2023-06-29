@@ -307,30 +307,24 @@ void Instgen::movhi(Reg r, int i) {
     (*output) << "\tmovhi\t" << r << ", #" << i << "\n";
 }
 
+
 void Instgen::str(Reg r, Reg base, int offset, std::string_view cond) {
     assert(r.valid() and not r.is_float);
     assert(base.valid() and not base.is_float);
 
     if (offset != 0) {
-        if (offset < 4096 and offset > -255)
-            (*output) << "\tstr" << cond << "\t" << r << ", [" << base << ", #" << offset << "]\n";
+        if (offset < 2048 and offset > -2049)//立即数合法范围 12位符号扩展
+            st_w(r, base, offset, cond);
         else {
             std::set temp_pool{Codegen::temp_lhs_reg, Codegen::temp_rhs_reg, Codegen::temp_out_reg};
             temp_pool.erase(r);
             temp_pool.erase(base);
             auto temp = *temp_pool.begin();
             Codegen::move(temp, offset, cond);
-            str(r, base, temp, cond);
+            stx_w(r, base, temp);
         }
-    } else
-        (*output) << "\tstr" << cond << "\t" << r << ", [" << base << "]\n";
-}
-
-void Instgen::str(Reg r, Reg base, Reg offset, std::string_view cond) {
-    assert(r.valid() and not r.is_float);
-    assert(base.valid() and not base.is_float);
-    assert(offset.valid() and not offset.is_float);
-    (*output) << "\tstr" << cond << "\t" << r << ", [" << base << ", " << offset << "]\n";
+    } else//offset == 0
+        st_w(r, base);
 }
 
 void Instgen::ldr(Reg r, Reg base, Reg offset, std::string_view cond) {
@@ -349,22 +343,23 @@ void Instgen::ldr(Reg r, Reg base, int offset, std::string_view cond) {
     if (cond != "")
         LOG_WARNING << "ldr " << r << ", [" << base << ", " << offset << "] " << cond << " is not supported";
     if (r.is_float) {  // how do we get here?
-        Instgen::vldr(r, base, offset, cond);
-        return;
+        exit(ABNORMAL_ERROR, "ldr出现了float");
+        /*Instgen::vldr(r, base, offset, cond);
+        return;*/
     }
     if (offset != 0) {
-        if (offset < 4096 and offset > -255)
-            (*output) << "\tldr" << cond << "\t" << r << ", [" << base << ", #" << offset << "]\n";
+        if (offset < 2048 and offset > -2049)// 12 bit offset[-2048, 2047]
+            ld_w(r, base, offset, cond);
         else {
             std::set temp_pool{Codegen::temp_lhs_reg, Codegen::temp_rhs_reg, Codegen::temp_out_reg};
             temp_pool.erase(r);
             temp_pool.erase(base);
             auto temp = *temp_pool.begin();
             Codegen::move(temp, offset, cond);
-            ldr(r, base, temp, cond);
+            ldx_w(r, base, temp);
         }
-    } else
-        (*output) << "\tldr" << cond << "\t" << r << ", [" << base << "]\n";
+    } else//offset == 0
+        ld_w(r, base);
 }
 
 void Instgen::adrl(Reg r, label l, std::string_view cond) {
@@ -783,6 +778,7 @@ void Instgen::fld_s(Reg r1, Reg r2, int imm, std::string_view cond) {
 void Instgen::fst_s(Reg r1, Reg r2, int imm, std::string_view cond) {
     if (cond != "")
         LOG_WARNING << cond << " is not supported in fst.s";
+    LOG_DEBUG<<"\tfst.s\t" << r1 << ", " << r2 << ", " << imm ;
     (*output) << "\tfst.s\t" << r1 << ", " << r2 << ", " << imm << "\n";
 }
 
